@@ -1,0 +1,40 @@
+# config file version
+apiVersion: 1
+
+# list of datasources to insert/update depending
+# whats available in the database
+datasources:
+  # <string, required> name of the datasource. Required
+- name: COSEMA
+  type: influxdb
+  url: http://influxdb:8086
+  access: proxy
+  user: root
+  database: cosema
+  secureJsonData:
+    password: root
+  isDefault: true
+  editable: true
+
+  # Added 2026-08-14 alongside the DBClient TimescaleDB port (dbclient-timescaledb
+  # branch, see TASK_dbclient_rewrite.md): points at our own "cosema" schema, not
+  # OEDS's entsoe_raw (that read-only integration is a separate, later task). uid
+  # is referenced by docker_configs/dashboard-definitions/outputs_timescaledb.json.
+  # Local dev note: "host.docker.internal" reaches the docker-run TimescaleDB test
+  # container published on the host at port 5433 -- swap for the real service name
+  # once TimescaleDB is wired into this compose.yml (or the OEDS stack) for real.
+- name: COSEMA_TIMESCALEDB
+  uid: PCOSEMA_TIMESCALEDB
+  type: postgres
+  url: host.docker.internal:5433
+  access: proxy
+  user: postgres
+  database: cosema_test
+  secureJsonData:
+    password: test
+  jsonData:
+    sslmode: disable
+    postgresVersion: 1700
+    timescaledb: true
+  isDefault: false
+  editable: true
