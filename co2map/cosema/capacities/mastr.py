@@ -29,8 +29,13 @@ import yaml
 from dask import delayed
 from dask.diagnostics import ProgressBar
 
-# Package for Datadownload from the MaStr
+# Package for Datadownload from the MaStr -- only used by
+# calculate_total_capacities_for_cosema's update_mastr_db=True branch (local
+# re-download into open-mastr's own SQLite), independent of get_pp_MaStr's
+# read path below, which now reads from cosema_inputs instead.
 from open_mastr import Mastr
+
+from cosema.input_output.db_engine import INPUTS_SCHEMA, get_engine
 
 logger = logging.getLogger(__name__)
 
@@ -79,17 +84,21 @@ def _clean_names(string):
     return string
 
 
-def _get_postcodes(path, crs):
+def _get_postcodes(crs):
     """
-    Loads a list of postcodes for Germany given as input data
-    :path string: location where to find the postcode list
+    Loads the list of postcodes for Germany from cosema_inputs.shapefile_postcodes
+    (migrated there via the standalone "Transfer data to database" scripts,
+    originally inputs/shapefiles/plz/OSM_PLZ.shp).
     :crs string: coordinate system to use
     :return: postcodes
     """
-    # Open postcode list manipulate it and return it
-    postcodes = gpd.read_file(path)
+    postcodes = gpd.read_postgis(
+        f'SELECT plz, geometry FROM "{INPUTS_SCHEMA}".shapefile_postcodes',
+        get_engine(),
+        geom_col="geometry",
+    )
     postcodes = postcodes.to_crs(crs)
-    postcodes = postcodes[["plz", "geometry"]].rename(columns={"plz": "Postleitzahl"})
+    postcodes = postcodes.rename(columns={"plz": "Postleitzahl"})
     postcodes = postcodes.set_index("Postleitzahl")
 
     return postcodes
@@ -152,10 +161,7 @@ def _clean_default_data(pp_data, gen_types, decommissioning_date):
     ]
 
     # Get country postcode and location mapping only valid for Germany
-    postcodes = _get_postcodes(
-        f"{config['MaStr']['postcodes']['path']}/{config['MaStr']['postcodes']['name']}",
-        config["MaStr"]["crs"],
-    )
+    postcodes = _get_postcodes(config["MaStr"]["crs"])
 
     postcodes["Location"] = postcodes.representative_point()
     # x laengengrad longitude values
@@ -186,12 +192,17 @@ def _clean_default_data(pp_data, gen_types, decommissioning_date):
         crs=config["MaStr"]["crs"],
     )
     missing_postcodes = missing_postcodes.to_crs(config["MaStr"]["crs"])
-    missing_postcodes["Postleitzahl"] = gpd.sjoin(
-        missing_postcodes, postcodes, how="inner", predicate="within"
-    )["index_right"]
-    pp_data.loc[pp_data["Postleitzahl"].isnull(), "Postleitzahl"] = missing_postcodes[
-        "Postleitzahl"
-    ]
+    # gpd.sjoin on an empty GeoDataFrame doesn't produce an "index_right"
+    # column at all (nothing to join), so skip the join entirely when there's
+    # nothing to fill -- pre-existing bug, found 2026-08-21 while testing
+    # tech groups that happen to have zero missing postcodes.
+    if not missing_postcodes.empty:
+        missing_postcodes["Postleitzahl"] = gpd.sjoin(
+            missing_postcodes, postcodes, how="inner", predicate="within"
+        )["index_right"]
+        pp_data.loc[pp_data["Postleitzahl"].isnull(), "Postleitzahl"] = missing_postcodes[
+            "Postleitzahl"
+        ]
 
     # Ignore all locations which have not be determined yet
     pp_data = pp_data[
@@ -520,16 +531,16 @@ def get_pp_MaStr(
 
     # Get unique MaStr specific carrier mapping, that is required to have a unique identification
     # of the generation types
-    gen_types = pd.read_csv(
-        f"{config['MaStr']['technologies']['carrier mapping']['path']}/{config['MaStr']['technologies']['carrier mapping']['name']}"
-    )
+    gen_types = pd.read_sql(f"SELECT * FROM {INPUTS_SCHEMA}.mastr_gen_types", get_engine())
     gen_types = gen_types.set_index("resource")
 
     # Convert default decommissioning date to timestamp
     default_decommissioning_date = pd.Timestamp(default_decommissioning_date)
 
-    # Initialize database of the MaStr and update it if desired
-    db_MaStr = Mastr()
+    # MaStR tables (migrated into cosema_inputs.{tech}_extended via the
+    # standalone "Transfer data to database" scripts) live in the same
+    # Postgres DB as everything else -- no separate connection needed.
+    mastr_engine = get_engine()
 
     # Columns of interest: selecting only these at the SQL level (rather than loading
     # every column and filtering afterwards) keeps peak memory manageable for large
@@ -585,12 +596,12 @@ def get_pp_MaStr(
     # Use dask parallelization to increase data loading
     pp_data = []
     for tech in tech_groups:
-        table_name = f"{tech}_extended"
+        table_name = f'"{INPUTS_SCHEMA}"."{tech}_extended"'
 
         # Not every technology table has all desired columns (e.g. only wind_extended
         # has Nabenhoehe), so restrict the SELECT to columns that actually exist there
         existing_columns = pd.read_sql(
-            f"SELECT * FROM {table_name} LIMIT 0", con=db_MaStr.engine
+            f"SELECT * FROM {table_name} LIMIT 0", con=mastr_engine
         ).columns
         select_columns = [c for c in desired_columns if c in existing_columns]
         columns_sql = ", ".join(f'"{c}"' for c in select_columns)
@@ -599,7 +610,7 @@ def get_pp_MaStr(
         pp_data.append(
             delayed(pd.read_sql)(
                 sql=f"SELECT {columns_sql} FROM {table_name}",
-                con=db_MaStr.engine,
+                con=mastr_engine,
                 parse_dates=select_date_columns,
             )
         )
@@ -691,8 +702,12 @@ def calculate_total_capacities_for_cosema(
     nuts2_to_state = config["nuts2_to_state"]
     nuts2_to_state = {k[3:]: v[3:] for k, v in nuts2_to_state.items()}
 
-    # Load shapefiles from cosema
-    regions = gpd.read_file(f"{config['Shapefiles']['states']['path']}")
+    # Load shapefiles -- cosema_inputs.shapefile_states, migrated there via the
+    # standalone "Transfer data to database" scripts (originally
+    # inputs/shapefiles/states.geojson).
+    regions = gpd.read_postgis(
+        f'SELECT * FROM "{INPUTS_SCHEMA}".shapefile_states', get_engine(), geom_col="geometry"
+    )
     regions = regions.to_crs(config["MaStr"]["crs"])
     regions = regions.set_index(config["Shapefiles"]["states"]["identifier"])[
         "geometry"

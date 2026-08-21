@@ -25,6 +25,7 @@ import pandas as pd
 import shapely
 import yaml
 
+from cosema.input_output.db_engine import INPUTS_SCHEMA, get_engine
 from cosema.regions import OFFSHORE_STATES
 
 import Vendor.atlite as at
@@ -40,7 +41,11 @@ with open("config.yaml", "r") as f:
 nuts2_to_state = config["nuts2_to_state"]
 nuts2_to_state = {k[3:]: v[3:] for k, v in nuts2_to_state.items()}
 
-regions = gp.read_file(f"{config['Shapefiles']['states']['path']}")
+# cosema_inputs.shapefile_states, migrated there via the standalone "Transfer
+# data to database" scripts (originally inputs/shapefiles/states.geojson).
+regions = gp.read_postgis(
+    f'SELECT * FROM "{INPUTS_SCHEMA}".shapefile_states', get_engine(), geom_col="geometry"
+)
 
 x1, y1 = regions.bounds[["minx", "miny"]].min(axis=0).tolist()
 x2, y2 = regions.bounds[["maxx", "maxy"]].max(axis=0).tolist()
@@ -53,10 +58,13 @@ grid = {
 }
 
 
-def get_borders_federal(path):
-    """Download simple german shape file with cartopy."""
+def get_borders_federal():
+    """German federal-state borders, from cosema_inputs.shapefile_states
+    (migrated there via the standalone "Transfer data to database" scripts)."""
 
-    df = gp.read_file(path)  # only use the simplest polygon
+    df = gp.read_postgis(
+        f'SELECT * FROM "{INPUTS_SCHEMA}".shapefile_states', get_engine(), geom_col="geometry"
+    )
     polygons = df[["NUTS_ID", "geometry"]].set_index("NUTS_ID")
 
     # match NUTS_ID to state abbreviation
@@ -65,6 +73,39 @@ def get_borders_federal(path):
     polygons["geometry"] = shapely.make_valid(polygons["geometry"])
 
     return polygons
+
+
+def _vre_capacities_exist(period: str, technology: str, state: str) -> bool:
+    """Whether cosema_inputs.capacities_vre has rows for the given period/
+    technology/state -- replaces the old os.path.isfile(check_path) probe
+    now that capacities come from the DB (see the standalone "Transfer data
+    to database" scripts) instead of local parquet files."""
+    query = (
+        f'SELECT 1 FROM "{INPUTS_SCHEMA}".capacities_vre '
+        "WHERE period = %(period)s AND technology = %(technology)s AND state = %(state)s "
+        "LIMIT 1"
+    )
+    with get_engine().connect() as conn:
+        result = pd.read_sql(
+            query, conn, params={"period": period, "technology": technology, "state": state}
+        )
+    return not result.empty
+
+
+def _load_vre_capacity(technology: str, state: str, period: str) -> gp.GeoDataFrame:
+    """Per-plant VRE capacities (x, y, Capacity, geometry) for one technology/
+    state/period, from cosema_inputs.capacities_vre -- replaces the old
+    gp.read_parquet(local_capacity_path) call."""
+    query = (
+        f'SELECT x, y, "Capacity", geometry FROM "{INPUTS_SCHEMA}".capacities_vre '
+        "WHERE period = %(period)s AND technology = %(technology)s AND state = %(state)s"
+    )
+    return gp.read_postgis(
+        query,
+        get_engine(),
+        geom_col="geometry",
+        params={"period": period, "technology": technology, "state": state},
+    )
 
 
 # cutouts
@@ -180,7 +221,7 @@ def run_vre_calculations(
     if not os.path.exists(cutout_path):
         os.makedirs(cutout_path)
 
-    shapes = get_borders_federal(path=config["Shapefiles"]["states"]["path"])
+    shapes = get_borders_federal()
 
     # check if cutout already exists and delete if overwrite is set to True
     if os.path.isfile(cutout_file_path) and overwrite:
@@ -202,12 +243,9 @@ def run_vre_calculations(
     max_attempts = 6
 
     while attempt < max_attempts:
-        capacity_path = f"./inputs/capacities/{month}"
-        check_path = f"{capacity_path}/solar_capacities_BW_{month}.parquet"
-
-        if os.path.isfile(check_path):
+        if _vre_capacities_exist(month, "solar", "BW"):
             logger.info(f"Found VRE capacities for {month}. Using them for calculations.")
-            break  # Found the file; exit loop.
+            break  # Found the period; exit loop.
         else:
             logger.warning(
                 f"VRE capacities for {month} not found. Using values from last months."
@@ -226,11 +264,7 @@ def run_vre_calculations(
             if technology == "wind_offshore" and identifier not in OFFSHORE_STATES:
                 continue
 
-            local_capacity_path = (
-                f"{capacity_path}/{technology}_capacities_{identifier}_{month}.parquet"
-            )
-
-            local_capacity = gp.read_parquet(local_capacity_path)
+            local_capacity = _load_vre_capacity(technology, identifier, month)
             local_capacity["geometry"] = shapely.make_valid(local_capacity["geometry"])
 
             local_shape = shapes.loc[idx]["geometry"]

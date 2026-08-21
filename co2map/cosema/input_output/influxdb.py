@@ -32,16 +32,15 @@ compose.yml: DB_HOST=open-data-17). See cosema/input_output/oeds_zones.py for th
 bidding-zone <-> country mapping this relies on.
 """
 import logging
-import os
 import traceback
 
 logger = logging.getLogger(__name__)
 
 import pandas as pd
 import yaml
-from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
+from cosema.input_output.db_engine import INPUTS_SCHEMA, get_engine
 from cosema.input_output.gap_filling import (
     cross_border_rules_unilateral,
     default_rules,
@@ -51,24 +50,8 @@ from cosema.input_output.gap_filling import (
 from cosema.input_output.oeds_zones import zones_for_country
 from cosema.regions import BUSES, OFFSHORE_STATES
 
-load_dotenv()
-
-
-def _module_db_engine():
-    """Connection for the module-level lookups below -- separate from
-    DBClient.engine (there's no DBClient instance yet at import time)."""
-    host = os.environ.get("DB_HOST", "localhost")
-    port = os.environ.get("DB_PORT", "5432")
-    dbname = os.environ.get("DB_NAME", "opendata")
-    user = os.environ.get("DB_USER", "postgres")
-    password = os.environ.get("DB_PASSWORD", "postgres")
-    return create_engine(
-        f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
-    )
-
-
 gen_types_df = pd.read_sql(
-    "SELECT * FROM cosema_inputs.gen_types_and_emission_factors", _module_db_engine()
+    f"SELECT * FROM {INPUTS_SCHEMA}.gen_types_and_emission_factors", get_engine()
 )
 ALLOW_NEGATIVE_GENERATION = list(
     gen_types_df[gen_types_df["is_storage"]]["entsoe"].unique()
