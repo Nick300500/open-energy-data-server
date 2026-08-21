@@ -264,6 +264,144 @@ class DBClient:
             df.index = pd.DatetimeIndex([], tz="UTC", name="time")
         return df
 
+    def _oeds_generation_table_columns(self) -> set:
+        if self._oeds_generation_columns is None:
+            with self.engine.connect() as conn:
+                rows = conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = 'entsoe_raw' AND table_name = 'Zonal_Generation_Raw'"
+                    )
+                )
+                self._oeds_generation_columns = {r[0] for r in rows}
+        return self._oeds_generation_columns
+
+    def _read_oeds_generation(
+        self,
+        country: str,
+        technologies: list,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> pd.DataFrame:
+        """Sums entsoe_raw."Zonal_Generation_Raw" across the country's bidding
+        zone(s) (see oeds_zones.py) in one query for all requested
+        technologies at once. Returns a wide DataFrame: index=time (UTC),
+        columns=technology (Title Case, matching our own naming -- OEDS's
+        crawler snake_cases the same entsoe-py technology names, e.g.
+        "Fossil Hard coal" -> "Fossil_Hard_coal", so the mapping is just
+        replace(" ", "_") and its inverse)."""
+        zones = zones_for_country(country)
+        available = self._oeds_generation_table_columns()
+        tech_to_column = {tech: tech.replace(" ", "_") for tech in technologies}
+        present = {t: c for t, c in tech_to_column.items() if c in available}
+        if not present:
+            return pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC", name="time"))
+
+        # entsoe_raw's value columns are a mix of `text` and `double precision`
+        # (grown organically on OEDS's side, same as our own _ensure_table) --
+        # cast via text first so it works uniformly for either source type.
+        select_cols = ", ".join(
+            f'SUM(CAST(NULLIF(CAST("{c}" AS TEXT), \'\') AS DOUBLE PRECISION)) AS "{c}"'
+            for c in present.values()
+        )
+        query = text(
+            f'SELECT "time", {select_cols} FROM entsoe_raw."Zonal_Generation_Raw" '
+            f'WHERE zone = ANY(:zones) AND "time" >= :start AND "time" <= :end '
+            f'GROUP BY "time" ORDER BY "time"'
+        )
+        with self.engine.connect() as conn:
+            df = pd.read_sql(
+                query,
+                conn,
+                params={
+                    "zones": zones,
+                    "start": start.to_pydatetime(),
+                    "end": end.to_pydatetime(),
+                },
+                index_col="time",
+            )
+        if df.empty:
+            df.index = pd.DatetimeIndex([], tz="UTC", name="time")
+        else:
+            df.index = pd.to_datetime(df.index, utc=True)
+        return df.rename(columns={c: t for t, c in present.items()})
+
+    def _read_oeds_demand(
+        self, country: str, start: pd.Timestamp, end: pd.Timestamp
+    ) -> pd.DataFrame:
+        """Sums entsoe_raw."Zonal_Demand_Raw" across the country's bidding
+        zone(s). Returns a single-column DataFrame (index=time, UTC),
+        column "Demand [MW]" -- same shape query_demand_data already expects
+        from the old self-schema read."""
+        zones = zones_for_country(country)
+        query = text(
+            'SELECT "time", '
+            "SUM(CAST(NULLIF(CAST(\"Actual_Load\" AS TEXT), '') AS DOUBLE PRECISION)) "
+            'AS "Demand [MW]" '
+            'FROM entsoe_raw."Zonal_Demand_Raw" '
+            'WHERE zone = ANY(:zones) AND "time" >= :start AND "time" <= :end '
+            'GROUP BY "time" ORDER BY "time"'
+        )
+        with self.engine.connect() as conn:
+            df = pd.read_sql(
+                query,
+                conn,
+                params={
+                    "zones": zones,
+                    "start": start.to_pydatetime(),
+                    "end": end.to_pydatetime(),
+                },
+                index_col="time",
+            )
+        if df.empty:
+            df.index = pd.DatetimeIndex([], tz="UTC", name="time")
+        else:
+            df.index = pd.to_datetime(df.index, utc=True)
+        return df
+
+    def _read_oeds_cross_border_flow(
+        self,
+        country_code_from: str,
+        country_code_to: str,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> pd.DataFrame:
+        """Sums entsoe_raw."Cross_Border_Physical_Flows_Bidding_Zones_Raw"
+        across the two countries' bidding zone(s). Zone pairs with no
+        interconnector simply have no rows, so summing across all zone
+        combinations of split countries (IT/NO/SE/DK) naturally reduces to
+        just the zones that are actually adjacent -- not an approximation in
+        practice, just a query that doesn't need to know the physical
+        adjacency itself."""
+        zones_from = zones_for_country(country_code_from)
+        zones_to = zones_for_country(country_code_to)
+        query = text(
+            'SELECT "time", '
+            "SUM(CAST(NULLIF(CAST(\"Physical Flow\" AS TEXT), '') AS DOUBLE PRECISION)) "
+            'AS "Flow [MW]" '
+            'FROM entsoe_raw."Cross_Border_Physical_Flows_Bidding_Zones_Raw" '
+            'WHERE "From Zone" = ANY(:zones_from) AND "To Zone" = ANY(:zones_to) '
+            'AND "time" >= :start AND "time" <= :end '
+            'GROUP BY "time" ORDER BY "time"'
+        )
+        with self.engine.connect() as conn:
+            df = pd.read_sql(
+                query,
+                conn,
+                params={
+                    "zones_from": zones_from,
+                    "zones_to": zones_to,
+                    "start": start.to_pydatetime(),
+                    "end": end.to_pydatetime(),
+                },
+                index_col="time",
+            )
+        if df.empty:
+            df.index = pd.DatetimeIndex([], tz="UTC", name="time")
+        else:
+            df.index = pd.to_datetime(df.index, utc=True)
+        return df
+
     def query_per_type_gen(
         self,
         start: pd.Timestamp,
@@ -274,26 +412,13 @@ class DBClient:
         return_gap_info: bool = False,
         resample: str = "1h",
     ):
-        measurement = "per_type_gen"
-        per_type_gen = pd.DataFrame()
         orig_start = start
 
         # for gap filling we require the previous weeks' data as well
         if fill_gaps:
             start = start - pd.Timedelta(weeks=2)
 
-        for technology in technologies:
-            temp_df = self._read_raw(
-                measurement,
-                value_column="Generation [MW]",
-                filters={"country": country, "technology": technology},
-                start=start,
-                end=end,
-            )
-            if len(temp_df) == 0:
-                continue
-            temp_df = temp_df.rename(columns={"Generation [MW]": technology})
-            per_type_gen = pd.concat([per_type_gen, temp_df], axis=1)
+        per_type_gen = self._read_oeds_generation(country, technologies, start, end)
 
         # convert time zone and fill missing rows with nan
         per_type_gen.index = per_type_gen.index.tz_convert(self.time_zone)
@@ -409,20 +534,25 @@ class DBClient:
         return_gap_info: bool = False,
         resample: str = "1h",
     ):
-        measurement = "demand" if mode == "historical" else "demand_forecast"
         orig_start = start
 
         # for gap filling we require the previous weeks' data as well
         if fill_gaps:
             start = start - pd.Timedelta(weeks=2)
 
-        demand = self._read_raw(
-            measurement,
-            value_column="Demand [MW]",
-            filters={"country": country},
-            start=start,
-            end=end,
-        )
+        if mode == "historical":
+            # OEDS's entsoe_raw only has actuals, no forecast table -- forecast
+            # mode still reads from our own schema, see write_df calls in
+            # cosema/ingestion/entsoe.py::download_demand_forecast_data.
+            demand = self._read_oeds_demand(country, start, end)
+        else:
+            demand = self._read_raw(
+                "demand_forecast",
+                value_column="Demand [MW]",
+                filters={"country": country},
+                start=start,
+                end=end,
+            )
 
         # convert time zone and fill missing rows with nan
         demand.index = demand.index.tz_convert(self.time_zone)
@@ -545,19 +675,14 @@ class DBClient:
         return_gap_info: bool = False,
         resample: str = "1h",
     ):
-        measurement = "cross_border_flow"
         orig_start = start
 
         # for gap filling we require the previous weeks' data as well
         if fill_gaps:
             start = start - pd.Timedelta(weeks=2)
 
-        flows = self._read_raw(
-            measurement,
-            value_column="Flow [MW]",
-            filters={"from": country_code_from, "to": country_code_to},
-            start=start,
-            end=end,
+        flows = self._read_oeds_cross_border_flow(
+            country_code_from, country_code_to, start, end
         )
 
         # convert time zone and fill missing rows with nan
