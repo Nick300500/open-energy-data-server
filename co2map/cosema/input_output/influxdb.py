@@ -22,14 +22,24 @@ measurements/tags): write_df() infers columns from the tag dict + dataframe colu
 creates/extends the table as needed. This matters because write_df is also called
 directly (not just through DBClient's own methods) from cosema/ingestion/entsoe.py with
 varying measurement/tag combinations.
+
+Redirected to OEDS's entsoe_raw schema (2026-08-21, see co2map/oeds_integration_plan.md):
+query_per_type_gen/query_demand_data/query_cross_border_flows now read live from
+entsoe_raw."Zonal_Generation_Raw"/"Zonal_Demand_Raw"/"Cross_Border_Physical_Flows_Bidding_Zones_Raw"
+instead of our own schema -- no separate connection needed, since the co2map service
+connects to the same Postgres instance OEDS's own crawler writes into (see
+compose.yml: DB_HOST=open-data-17). See cosema/input_output/oeds_zones.py for the
+bidding-zone <-> country mapping this relies on.
 """
 import logging
+import os
 import traceback
 
 logger = logging.getLogger(__name__)
 
 import pandas as pd
 import yaml
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 from cosema.input_output.gap_filling import (
@@ -38,9 +48,28 @@ from cosema.input_output.gap_filling import (
     find_gaps,
     germany_rules,
 )
+from cosema.input_output.oeds_zones import zones_for_country
 from cosema.regions import BUSES, OFFSHORE_STATES
 
-gen_types_df = pd.read_csv("inputs/generation_data/gen_types_and_emission_factors.csv")
+load_dotenv()
+
+
+def _module_db_engine():
+    """Connection for the module-level lookups below -- separate from
+    DBClient.engine (there's no DBClient instance yet at import time)."""
+    host = os.environ.get("DB_HOST", "localhost")
+    port = os.environ.get("DB_PORT", "5432")
+    dbname = os.environ.get("DB_NAME", "opendata")
+    user = os.environ.get("DB_USER", "postgres")
+    password = os.environ.get("DB_PASSWORD", "postgres")
+    return create_engine(
+        f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
+    )
+
+
+gen_types_df = pd.read_sql(
+    "SELECT * FROM cosema_inputs.gen_types_and_emission_factors", _module_db_engine()
+)
 ALLOW_NEGATIVE_GENERATION = list(
     gen_types_df[gen_types_df["is_storage"]]["entsoe"].unique()
 )
@@ -79,6 +108,11 @@ class DBClient:
         # (table, column) pairs already known to exist -- avoids an ALTER TABLE
         # round-trip on every single write_df call once a table has stabilized.
         self._known_columns = set()
+
+        # entsoe_raw."Zonal_Generation_Raw" column names, cached on first use --
+        # see _read_oeds_generation(). Fixed OEDS-side schema, not expected to
+        # change within a process lifetime.
+        self._oeds_generation_columns = None
 
     def _ensure_table(self, measurement: str, tag_columns: list, value_columns: list):
         schema_q = _quote_ident(self.schema)

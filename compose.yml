@@ -176,6 +176,31 @@ services:
       - default
       - proxy
 
+  co2map:
+    build:
+      context: ./co2map
+      dockerfile: Dockerfile
+    container_name: oeds-co2map
+    restart: unless-stopped
+    depends_on:
+      - open-data-17
+    volumes:
+      - ./co2map:/app
+      # ~13 GB, not part of the repo -- populated separately on the server,
+      # see co2map/UEBERGABE.md. Mounted read-only: this service only reads
+      # these inputs, never writes them.
+      - ./co2map/inputs:/app/inputs:ro
+    environment:
+      # DB_HOST: value TBD, see co2map/oeds_integration_plan.md "Offene Fragen"
+      # (open-data-17's own service name is the likely value, not yet confirmed
+      # by the server colleague).
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      LOG_LEVEL: INFO
+
   postgres-metabase:
     image: postgres:16
     restart: unless-stopped

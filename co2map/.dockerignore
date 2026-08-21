@@ -1,0 +1,15 @@
+# Secrets -- must never end up baked into an image layer.
+keys.yaml
+.env
+
+__pycache__
+*.pyc
+.venv
+logs
+*.log
+
+# Large local-only inputs (~13 GB, see UEBERGABE.md) -- not part of the repo,
+# mounted as a volume on the server instead of being copied into the image.
+inputs
+
+.git
