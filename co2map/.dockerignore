@@ -13,3 +13,8 @@ logs
 inputs
 
 .git
+
+# Copied explicitly, early, alongside pyproject.toml (see Dockerfile) -- must
+# stay out of the later `COPY . /app` or it clobbers the lock file `poetry
+# install` just wrote with whatever's sitting in the build context.
+poetry.lock

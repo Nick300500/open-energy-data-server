@@ -21,8 +21,10 @@ RUN pip install poetry
 
 # Copied separately from the rest of the source so `poetry install` is only
 # re-run (and re-cached) when dependencies actually change, not on every
-# code edit.
-COPY pyproject.toml /app/pyproject.toml
+# code edit. poetry.lock is intentionally excluded from the later `COPY . /app`
+# (see .dockerignore) -- it used to silently clobber the lock file poetry
+# writes here with the (possibly stale) one sitting in the build context.
+COPY pyproject.toml poetry.lock* /app/
 RUN poetry install --no-root --only main
 
 COPY . /app
