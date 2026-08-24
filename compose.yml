@@ -186,10 +186,23 @@ services:
       - open-data-17
     volumes:
       - ./co2map:/app
-      # ~13 GB, not part of the repo -- populated separately on the server,
-      # see co2map/UEBERGABE.md. Mounted read-only: this service only reads
-      # these inputs, never writes them.
-      - ./co2map/inputs:/app/inputs:ro
+      # Weather cutouts (NetCDF) -- server colleague's call (2026-08-24): kept
+      # as files rather than migrated into Postgres, since the format is
+      # already built for this. Path TBD, still needs the colleague to
+      # confirm/create a real directory on the server; ./data/co2map-cutouts
+      # here is a placeholder following this repo's own convention for
+      # persistent host paths (see ./data/open-data-ha, ./data/pgadmin
+      # above). Mounted read-only: this service only reads these, the
+      # (separate, external) upload process writes them.
+      # Mounted straight to /app/inputs/cutouts to match
+      # cosema/generation/vre.py's existing `./inputs/cutouts/{month}` path
+      # unchanged -- no code change needed on our side for this mount.
+      - ./data/co2map-cutouts:/app/inputs/cutouts:ro
+      # NOTE: cosema/pypsa_scripts.py's reference network files
+      # (inputs/networks/*.nc, consumption-side flow tracing) are NOT covered
+      # yet -- that whole code path is still "zurückgestellt" per
+      # modularization_docs/modularisierung_status.md, unrelated to this
+      # session's OEDS-integration work.
     environment:
       # DB_HOST: value TBD, see co2map/oeds_integration_plan.md "Offene Fragen"
       # (open-data-17's own service name is the likely value, not yet confirmed
