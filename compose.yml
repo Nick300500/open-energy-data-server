@@ -219,6 +219,9 @@ services:
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
+      # Same var prefect-worker already uses above -- replaces co2map's old
+      # keys.yaml file (never set up for this container; removed 2026-08-28).
+      ENTSOE_API_KEY: ${ENTSOE_API_KEY}
       LOG_LEVEL: INFO
 
   postgres-metabase:

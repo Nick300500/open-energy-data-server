@@ -19,6 +19,11 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.10"
+# Pinned <2.0: pyomo 6.6.1 (a transitive dependency via pypsa) uses np.float_
+# internally, removed in NumPy 2.0 -- crashed the container on import with
+# AttributeError on first live deploy (2026-08-28). Nothing else in this
+# dependency set requires NumPy 2.x.
+numpy = "^1.26.0"
 pandas = "^2.0.0"
 pyyaml = "^6.0"
 xarray = "2024.3.0"

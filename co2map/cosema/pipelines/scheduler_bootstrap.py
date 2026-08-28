@@ -18,9 +18,9 @@ boilerplate to hide away.
 schedulers/forecast_calculations.py does not use this (different structure).
 """
 
+import os
 import time
 
-import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from entsoe import EntsoePandasClient
 
@@ -29,22 +29,27 @@ from cosema.input_output.influxdb import DBClient
 
 def build_clients():
     """
-    Load keys.yaml and build the DBClient + EntsoePandasClient shared by all
-    schedulers.
+    Build the DBClient + EntsoePandasClient shared by all schedulers, from
+    the same DB_HOST/PORT/NAME/USER/PASSWORD + ENTSOE_API_KEY env vars the
+    rest of the app + prefect-worker (see compose.yml) already use --
+    replaces the old keys.yaml file, which was never set up for this
+    container (2026-08-28).
     """
-    with open("keys.yaml", "r") as f:
-        keys = yaml.safe_load(f)
-
+    # This DBClient's own target DB (schema="cosema", DBClient's default) is
+    # the same open-data-17 Postgres instance as everything else, not a
+    # separate database.
     db_client = DBClient(
-        database_name="cosema",
-        username=keys["influxdb"]["username"],
-        password=keys["influxdb"]["password"],
+        database_name=os.environ.get("DB_NAME", "opendata"),
+        host=os.environ.get("DB_HOST", "localhost"),
+        port=int(os.environ.get("DB_PORT", "5432")),
+        username=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
     )
     # timeout=: without it, a request whose server accepts the connection but
     # never replies hangs forever, bypassing retry_function's retry entirely
     # (see cosema/ingestion/entsoe.py::retry_function) -- observed 2026-07-22/23
     # via manual_runs.py, a cross-border flow request stalled for 3.5h+.
-    entsoe_client = EntsoePandasClient(api_key=keys["entsoe-key"], timeout=60)
+    entsoe_client = EntsoePandasClient(api_key=os.environ["ENTSOE_API_KEY"], timeout=60)
 
     return db_client, entsoe_client
 

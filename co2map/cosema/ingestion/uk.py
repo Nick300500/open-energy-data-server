@@ -14,7 +14,6 @@ from io import StringIO
 import numpy as np
 import pandas as pd
 import requests
-import yaml
 
 # timeout for API calls (in seconds)
 TIMEOUT = 60
@@ -43,10 +42,6 @@ IE_GENERATION_TYPES = [
     ("Hydro Pumped Storage", 0.008451),
     ("Other", 0.081690),
 ]
-
-# load keys.yaml where the database and entsoe keys are stored
-with open("keys.yaml", "r") as f:
-    keys = yaml.safe_load(f)
 
 
 def download_GB_per_type_data(start: pd.Timestamp, end: pd.Timestamp):

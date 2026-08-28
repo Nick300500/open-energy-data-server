@@ -41,10 +41,15 @@ def perform_initial_calculations(entsoe_client, db_client, time_delta, interval)
         end=end,
         db_client=db_client,
         entsoe_client=entsoe_client,
-        download_per_type=True,
-        download_demand=True,
+        # Redundant since 2026-08-28, same as initial_calculations.py: these
+        # three now come live from OEDS's entsoe_raw instead. download_per_unit
+        # stays on -- per-unit (per-power-plant) generation isn't in entsoe_raw
+        # (zone-level only), so this is still the only source for it and still
+        # needs a real ENTSO-E API key in keys.yaml.
+        download_per_type=False,
+        download_demand=False,
         download_per_unit=True,
-        download_cross_border=True,
+        download_cross_border=False,
         run_vre_historical=True,
         run_regionalization=True,
         run_intensities=True,

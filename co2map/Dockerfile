@@ -16,7 +16,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential gcc g++ libpq-dev \
+    build-essential gcc g++ libpq-dev libexpat1 \
     && rm -rf /var/lib/apt/lists/*
 
 # All three schedulers import pypsa concurrently at startup (see

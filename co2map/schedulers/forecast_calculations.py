@@ -1,10 +1,10 @@
 import argparse
 import logging
+import os
 import time
 from datetime import datetime
 
 import pandas as pd
-import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from entsoe import EntsoePandasClient
 
@@ -66,21 +66,22 @@ def main(
     tasks_interval: int = None,
     time_delta: pd.Timedelta = None,
 ):
-    # load keys.yaml where the database and entsoe keys are stored
-    with open("keys.yaml", "r") as f:
-        keys = yaml.safe_load(f)
-
+    # DB_HOST/PORT/NAME/USER/PASSWORD, ENTSOE_API_KEY: same env vars the rest
+    # of the app + prefect-worker (see compose.yml) already use -- replaces
+    # the old keys.yaml file, which was never set up for this container.
     db_client = DBClient(
-        database_name="cosema",
-        username=keys["influxdb"]["username"],
-        password=keys["influxdb"]["password"],
+        database_name=os.environ.get("DB_NAME", "opendata"),
+        host=os.environ.get("DB_HOST", "localhost"),
+        port=int(os.environ.get("DB_PORT", "5432")),
+        username=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
     )
 
     # timeout=: without it, a request whose server accepts the connection but
     # never replies hangs forever, bypassing retry_function's retry entirely
     # (see cosema/ingestion/entsoe.py::retry_function) -- observed 2026-07-22/23
     # via manual_runs.py, a cross-border flow request stalled for 3.5h+.
-    entsoe_client = EntsoePandasClient(api_key=keys["entsoe-key"], timeout=60)
+    entsoe_client = EntsoePandasClient(api_key=os.environ["ENTSOE_API_KEY"], timeout=60)
 
     if initial_date is None:
         initial_date = pd.Timestamp("now", tz="UTC").normalize() # normalize to 00:00
