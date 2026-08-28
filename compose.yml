@@ -229,6 +229,13 @@ services:
       # Same var prefect-worker already uses above -- replaces co2map's old
       # keys.yaml file (never set up for this container; removed 2026-08-28).
       ENTSOE_API_KEY: ${ENTSOE_API_KEY}
+      # cosema/generation/vre.py's weather-cutout generation (via atlite,
+      # Vendor/atlite/datasets/meteo.py) calls cdsapi.Client() with no
+      # explicit key -- cdsapi 0.7.7 reads this env var itself (confirmed by
+      # inspecting the installed package), no code change needed. The API
+      # URL is hardcoded in the vendored code to the current CDS endpoint,
+      # so only the key is needed here, not a CDSAPI_URL.
+      CDSAPI_KEY: ${CDSAPI_KEY}
       LOG_LEVEL: INFO
 
   postgres-metabase:
