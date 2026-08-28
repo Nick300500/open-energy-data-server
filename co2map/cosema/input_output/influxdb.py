@@ -67,6 +67,19 @@ def _quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _infer_freq_or_default(index, default: str = "1h") -> str:
+    """pd.infer_freq() raises ValueError with fewer than 3 points -- entsoe_raw
+    is gappy enough in practice (found 2026-08-28 on a real deploy: a whole
+    24h DE demand window with too little data to infer from) that callers
+    crashed before find_gaps() ever got a chance to reconstruct the missing
+    hours from prior weeks, which is the whole point of fill_gaps=True.
+    Falling back to hourly (matches this data's actual native resolution)
+    lets that gap-filling proceed instead."""
+    if len(index) < 3:
+        return default
+    return pd.infer_freq(index) or default
+
+
 class DBClient:
     def __init__(
         self,
@@ -407,7 +420,7 @@ class DBClient:
         per_type_gen.index = per_type_gen.index.tz_convert(self.time_zone)
         per_type_gen = per_type_gen.reindex(
             pd.date_range(
-                start=start, end=end, freq=pd.infer_freq(per_type_gen.index[:3])
+                start=start, end=end, freq=_infer_freq_or_default(per_type_gen.index[:3])
             )
         )
 
@@ -540,7 +553,7 @@ class DBClient:
         # convert time zone and fill missing rows with nan
         demand.index = demand.index.tz_convert(self.time_zone)
         demand = demand.reindex(
-            pd.date_range(start=start, end=end, freq=pd.infer_freq(demand.index[:3]))
+            pd.date_range(start=start, end=end, freq=_infer_freq_or_default(demand.index[:3]))
         )
 
         # fill gaps if requested
@@ -671,7 +684,7 @@ class DBClient:
         # convert time zone and fill missing rows with nan
         flows.index = flows.index.tz_convert(self.time_zone)
         flows = flows.reindex(
-            pd.date_range(start=start, end=end, freq=pd.infer_freq(flows.index[:3]))
+            pd.date_range(start=start, end=end, freq=_infer_freq_or_default(flows.index[:3]))
         )
 
         # fill gaps if requested
