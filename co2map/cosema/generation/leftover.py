@@ -15,7 +15,9 @@ generation/regional_split.py instead.
 
 import pandas as pd
 
-gen_types_df = pd.read_csv("inputs/generation_data/gen_types_and_emission_factors.csv")
+from cosema.input_output.db_engine import INPUTS_SCHEMA, get_engine
+
+gen_types_df = pd.read_sql(f"SELECT * FROM {INPUTS_SCHEMA}.gen_types_and_emission_factors", get_engine())
 ALLOW_NEGATIVE_GENERATION = list(
     gen_types_df[gen_types_df["is_storage"]]["entsoe"].unique()
 )

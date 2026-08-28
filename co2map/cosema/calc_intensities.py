@@ -7,6 +7,7 @@ import yaml
 import cosema.pypsa_scripts as pf
 import Vendor.netallocation as ntl
 from cosema.cross_border_scripts import query_cross_border_flows
+from cosema.input_output.db_engine import INPUTS_SCHEMA, get_engine
 from cosema.input_output.influxdb import query_demand_data, query_reg_demand_data
 from cosema.input_output.influxdb import query_per_type_data, query_reg_per_type_data
 from cosema.balance import (
@@ -25,9 +26,6 @@ logger = logging.getLogger(__name__)
 
 # Constants
 CONFIG_PATH = "config.yaml"
-TECHNOLOGIES_AND_EMISSION_FACTORS_PATH = (
-    "inputs/generation_data/gen_types_and_emission_factors.csv"
-)
 NETWORK_INPUT_PATH = "inputs/networks/elec_s_37"
 LEVEL = "DE_federal"
 
@@ -47,7 +45,9 @@ flow_tracing_method = config["flow_tracing_method"]
 
 # Load technologies and emission factors
 def load_technologies_and_ef():
-    technologies_df = pd.read_csv(TECHNOLOGIES_AND_EMISSION_FACTORS_PATH)
+    technologies_df = pd.read_sql(
+        f"SELECT * FROM {INPUTS_SCHEMA}.gen_types_and_emission_factors", get_engine()
+    )
     technologies = technologies_df["entsoe"].unique()
 
     conv_technologies = (
@@ -56,7 +56,7 @@ def load_technologies_and_ef():
         .to_dict()
     )
 
-    emission_factors_df = pd.read_csv(TECHNOLOGIES_AND_EMISSION_FACTORS_PATH)
+    emission_factors_df = technologies_df.copy()
     # set index to converted and drop entssoe column
     emission_factors_df = emission_factors_df.set_index("converted").drop(
         columns="entsoe"

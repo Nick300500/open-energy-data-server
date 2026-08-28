@@ -20,6 +20,7 @@ import pandas as pd
 import yaml
 
 from cosema.generation.leftover import calc_leftover_gen_per_type
+from cosema.input_output.db_engine import INPUTS_SCHEMA, get_engine
 from cosema.input_output.influxdb import collect_vre, query_per_type_data
 from cosema.input_output.local_files import load_demand_reg_factors
 from cosema.regions import BUSES
@@ -31,15 +32,12 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 with open("config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
-gen_types = pd.read_csv("inputs/generation_data/gen_types_and_emission_factors.csv")
-gen_types = gen_types["entsoe"].unique()
+_gen_types_df = pd.read_sql(f"SELECT * FROM {INPUTS_SCHEMA}.gen_types_and_emission_factors", get_engine())
+gen_types = _gen_types_df["entsoe"].unique()
 
-matching_id_EIC = pd.read_csv("inputs/generation_data/Matching_idBNA_EIC.csv")
+matching_id_EIC = pd.read_sql(f"SELECT * FROM {INPUTS_SCHEMA}.matching_id_bna_eic", get_engine())
 
-entsoe_gen_types = pd.read_csv(
-    "inputs/generation_data/gen_types_and_emission_factors.csv"
-)
-entsoe_gen_types = entsoe_gen_types["entsoe"].unique()
+entsoe_gen_types = gen_types
 
 
 def preprocess_gen_per_unit(per_unit_data, start, end):
@@ -71,8 +69,11 @@ def preprocess_gen_per_unit(per_unit_data, start, end):
         if len(state) == 0:
             logger.warning(f"Missing EIC: {eic}! Please update the matching_id_EIC.csv")
 
-            # Ensure the file exists before opening it
+            # Ensure the file (and its directory -- inputs/generation_data no
+            # longer exists in the container now that its reference tables
+            # live in the DB, see cosema_inputs) exists before opening it
             missing_eic_path = "inputs/generation_data/missing_eic.txt"
+            os.makedirs(os.path.dirname(missing_eic_path), exist_ok=True)
             if not os.path.exists(missing_eic_path):
                 with open(missing_eic_path, "w") as f:
                     pass  # Create the file if it doesn't exist
