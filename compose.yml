@@ -186,23 +186,30 @@ services:
       - open-data-17
     volumes:
       - ./co2map:/app
-      # Weather cutouts (NetCDF) -- (2026-08-24): kept
-      # as files rather than migrated into Postgres, since the format is
-      # already built for this. Path TBD, still needs the colleague to
-      # confirm/create a real directory on the server; ./data/co2map-cutouts
-      # here is a placeholder following this repo's own convention for
-      # persistent host paths (see ./data/open-data-ha, ./data/pgadmin
-      # above). Mounted read-only: this service only reads these, the
-      # (separate, external) upload process writes them.
-      # Mounted straight to /app/inputs/cutouts to match
-      # cosema/generation/vre.py's existing `./inputs/cutouts/{month}` path
-      # unchanged -- no code change needed on our side for this mount.
-      - ./data/co2map-cutouts:/app/inputs/cutouts:ro
-      # NOTE: cosema/pypsa_scripts.py's reference network files
-      # (inputs/networks/*.nc, consumption-side flow tracing) are NOT covered
-      # yet -- that whole code path is still "zurückgestellt" per
-      # modularization_docs/modularisierung_status.md, unrelated to this
-      # session's OEDS-integration work.
+      # Static/local-file inputs that stay as files rather than moving into
+      # Postgres: weather cutouts (NetCDF, server colleague's call
+      # 2026-08-24 -- the format is already built for this) and the PyPSA
+      # reference network (inputs/networks/*.nc, needed by
+      # cosema/calc_intensities.py::prepare_and_solve_network for the
+      # consumption-side flow tracing -- confirmed 2026-08-29 to be on the
+      # live path every scheduled run takes, not deferred/optional as
+      # earlier assumed here). One combined mount since both are just
+      # subfolders of inputs/ in the code (inputs/cutouts/{month}/...,
+      # inputs/networks/elec_s_37_*.nc) -- server-side directory still needs
+      # the colleague to confirm/create ./data/co2map-static-inputs (a
+      # placeholder following this repo's own convention for persistent host
+      # paths, see ./data/open-data-ha, ./data/pgadmin above), with
+      # `networks/` populated by the same (separate, external) upload
+      # process as everything else.
+      # NOT read-only: cosema/generation/vre.py::create_cutout() calls
+      # atlite's cutout.prepare(), which downloads and writes a NEW cutout
+      # file into inputs/cutouts/{month}/ itself (via the Climate Data Store
+      # API, see cdsapi -- separate open question, needs real CDS
+      # credentials) whenever the requested one doesn't exist yet. A
+      # read-only mount would break that -- inputs/networks/ happens to be
+      # read-only in practice (nothing in this codebase writes there), just
+      # not enforced at the mount level.
+      - ./data/co2map-static-inputs:/app/inputs
     environment:
       # DB_HOST confirmed by the server colleague (2026-08-26): open-data-17,
       # its own service name -- containers address each other by service name

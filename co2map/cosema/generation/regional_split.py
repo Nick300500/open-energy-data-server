@@ -96,10 +96,12 @@ def preprocess_gen_per_unit(per_unit_data, start, end):
         if len(state) == 0:
             logger.warning(f"Missing EIC: {eic}! Please update the matching_id_EIC.csv")
 
-            # Ensure the file (and its directory -- inputs/generation_data no
-            # longer exists in the container now that its reference tables
-            # live in the DB, see cosema_inputs) exists before opening it
-            missing_eic_path = "inputs/generation_data/missing_eic.txt"
+            # Moved from inputs/generation_data/ to logs/ (2026-08-29):
+            # inputs/ is now a read-only bind mount (weather cutouts + PyPSA
+            # reference network, see compose.yml), so writing here isn't just
+            # a matter of the old directory no longer existing -- it would
+            # fail outright even if created.
+            missing_eic_path = "logs/missing_eic.txt"
             os.makedirs(os.path.dirname(missing_eic_path), exist_ok=True)
             if not os.path.exists(missing_eic_path):
                 with open(missing_eic_path, "w") as f:
