@@ -10,12 +10,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_CREATE=false \
     PYTHONPATH=/app
+# PYTHONPATH=/app: needed so Python finds the cosema package when running
+# `python schedulers/x.py` (the script's own directory goes on sys.path, not cwd).
 
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gcc g++ libpq-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# All three schedulers import pypsa concurrently at startup (see
+# docker/entrypoint.sh) and pypsa's own check-then-mkdir for this directory
+# isn't safe under that race -- observed FileExistsError crashing the
+# container on first real deploy (2026-08-28). Pre-creating it here means
+# it already exists by the time any of the three processes gets to it.
+RUN mkdir -p /root/.local/share/pypsa-networks
 
 RUN pip install poetry
 

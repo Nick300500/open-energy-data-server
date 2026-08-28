@@ -204,11 +204,18 @@ services:
       # modularization_docs/modularisierung_status.md, unrelated to this
       # session's OEDS-integration work.
     environment:
-      # DB_HOST: value TBD, see co2map/oeds_integration_plan.md "Offene Fragen"
-      # (open-data-17's own service name is the likely value, not yet confirmed
-      # by the server colleague).
+      # DB_HOST confirmed by the server colleague (2026-08-26): open-data-17,
+      # its own service name -- containers address each other by service name
+      # inside the compose network.
       DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
+      # NOT ${DB_PORT} (that's 7432, the port open-data-17 is mapped to on
+      # the HOST for external access, e.g. from a laptop -- see
+      # `ports: "${DB_PORT}:5432"` on open-data-17 above). From inside the
+      # compose network, Postgres is reachable directly on its own container
+      # port, 5432, regardless of what DB_PORT is set to externally. Hardcoded
+      # (not a variable) since it's an internal-network constant, not
+      # server-specific config.
+      DB_PORT: 5432
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
