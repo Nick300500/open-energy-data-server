@@ -151,11 +151,11 @@ services:
       - "${METABASE_PORT}:3000"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.metabase-${COMPOSE_PROJECT_NAME}.rule=Host(`${METABASE_DOMAIN}`)"
-      - "traefik.http.routers.metabase-${COMPOSE_PROJECT_NAME}.entrypoints=websecure"
-      - "traefik.http.routers.metabase-${COMPOSE_PROJECT_NAME}.tls=true"
-      - "traefik.http.routers.metabase-${COMPOSE_PROJECT_NAME}.tls.certresolver=letsencrypt"
-      - "traefik.http.services.metabase-${COMPOSE_PROJECT_NAME}.loadbalancer.server.port=3000"
+      - "traefik.http.routers.metabase.rule=Host(`${METABASE_DOMAIN}`)"
+      - "traefik.http.routers.metabase.entrypoints=websecure"
+      - "traefik.http.routers.metabase.tls=true"
+      - "traefik.http.routers.metabase.tls.certresolver=letsencrypt"
+      - "traefik.http.services.metabase.loadbalancer.server.port=3000"
     environment:
       MB_DB_TYPE: postgres
       MB_DB_DBNAME: metabaseappdb
@@ -186,7 +186,7 @@ services:
       - open-data-17
     volumes:
       - ./co2map:/app
-      # Weather cutouts (NetCDF) -- server colleague's call (2026-08-24): kept
+      # Weather cutouts (NetCDF) -- (2026-08-24): kept
       # as files rather than migrated into Postgres, since the format is
       # already built for this. Path TBD, still needs the colleague to
       # confirm/create a real directory on the server; ./data/co2map-cutouts
