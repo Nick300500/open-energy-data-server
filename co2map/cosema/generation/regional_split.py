@@ -40,6 +40,27 @@ matching_id_EIC = pd.read_sql(f"SELECT * FROM {INPUTS_SCHEMA}.matching_id_bna_ei
 entsoe_gen_types = gen_types
 
 
+def _conv_capacities_exist(period: str) -> bool:
+    """Whether cosema_inputs.capacities_conventional has rows for the given
+    period -- replaces the old os.path.isfile(check_path) probe now that
+    capacities come from the DB (see the standalone "Transfer data to
+    database" scripts) instead of local parquet files."""
+    query = f'SELECT 1 FROM "{INPUTS_SCHEMA}".capacities_conventional WHERE period = %(period)s LIMIT 1'
+    with get_engine().connect() as conn:
+        result = pd.read_sql(query, conn, params={"period": period})
+    return not result.empty
+
+
+def _load_conv_capacities(period: str) -> pd.DataFrame:
+    """Conventional per-state capacities (one column per technology) for one
+    period, from cosema_inputs.capacities_conventional -- replaces the old
+    pd.read_parquet(check_path) call. Same shape as the old parquet file:
+    indexed by state, one column per technology."""
+    query = f'SELECT * FROM "{INPUTS_SCHEMA}".capacities_conventional WHERE period = %(period)s'
+    df = pd.read_sql(query, get_engine(), params={"period": period})
+    return df.drop(columns=["period"]).set_index("state")
+
+
 def preprocess_gen_per_unit(per_unit_data, start, end):
     global matching_id_EIC
 
@@ -315,13 +336,10 @@ def calculate_regionalized_gen_and_demand(
     max_attempts = 6
 
     while attempt < max_attempts:
-        capacity_path = f"./inputs/capacities/{month}"
-        check_path = f"{capacity_path}/conv_capacities_{month}.parquet"
-
-        if os.path.isfile(check_path):
+        if _conv_capacities_exist(month):
             logger.info(f"Found conventional capacities for {month}. Using them for calculations.")
-            regional_capacities = pd.read_parquet(check_path)
-            break  # Found the file; exit loop.
+            regional_capacities = _load_conv_capacities(month)
+            break  # Found the period; exit loop.
         else:
             logger.warning(
                 f"Conventional capacities for {month} not found. Using values from last months."
