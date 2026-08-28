@@ -9,7 +9,7 @@ from cosema.pipelines.runner import run_pipeline
 from cosema.pipelines.scheduler_bootstrap import build_clients, start_scheduler
 
 handlers = get_handlers(log_path="logs/initial_calculations.log")
-logging.basicConfig(level=logging.INFO, handlers=handlers)
+logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
 
 logger = logging.getLogger(__name__)
 

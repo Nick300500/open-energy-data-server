@@ -75,21 +75,25 @@ def get_borders_federal():
     return polygons
 
 
-def _vre_capacities_exist(period: str, technology: str, state: str) -> bool:
-    """Whether cosema_inputs.capacities_vre has rows for the given period/
-    technology/state -- replaces the old os.path.isfile(check_path) probe
-    now that capacities come from the DB (see the standalone "Transfer data
-    to database" scripts) instead of local parquet files."""
+def _latest_vre_capacities_period(at_or_before: str, technology: str, state: str):
+    """Most recent period in cosema_inputs.capacities_vre at or before the
+    given YYYY_MM period for one technology/state, or None if there's none
+    at all. Replaces the old fixed 6-month lookback loop (subtract 30d,
+    retry, up to 6 times) -- that silently ran out once real data got more
+    than 6 months stale (see the identical fix in
+    generation/regional_split.py::_latest_conv_capacities_period, found the
+    same day, 2026-08-28, for the same underlying reason: only one period,
+    2026_02, uploaded so far)."""
     query = (
-        f'SELECT 1 FROM "{INPUTS_SCHEMA}".capacities_vre '
-        "WHERE period = %(period)s AND technology = %(technology)s AND state = %(state)s "
-        "LIMIT 1"
+        f'SELECT period FROM "{INPUTS_SCHEMA}".capacities_vre '
+        "WHERE period <= %(at_or_before)s AND technology = %(technology)s AND state = %(state)s "
+        "ORDER BY period DESC LIMIT 1"
     )
     with get_engine().connect() as conn:
         result = pd.read_sql(
-            query, conn, params={"period": period, "technology": technology, "state": state}
+            query, conn, params={"at_or_before": at_or_before, "technology": technology, "state": state}
         )
-    return not result.empty
+    return result["period"].iloc[0] if not result.empty else None
 
 
 def _load_vre_capacity(technology: str, state: str, period: str) -> gp.GeoDataFrame:
@@ -239,21 +243,16 @@ def run_vre_calculations(
 
     month = start.strftime("%Y_%m")
 
-    attempt = 0
-    max_attempts = 6
-
-    while attempt < max_attempts:
-        if _vre_capacities_exist(month, "solar", "BW"):
-            logger.info(f"Found VRE capacities for {month}. Using them for calculations.")
-            break  # Found the period; exit loop.
-        else:
-            logger.warning(
-                f"VRE capacities for {month} not found. Using values from last months."
-            )
-            # Subtract ~1 month (30 days) from `start`, then recalc `month`
-            start = start - pd.Timedelta("30d")
-            month = start.strftime("%Y_%m")
-            attempt += 1
+    latest_period = _latest_vre_capacities_period(month, "solar", "BW")
+    if latest_period is None:
+        raise RuntimeError(
+            f"No VRE capacities found in {INPUTS_SCHEMA}.capacities_vre at or before {month}"
+        )
+    if latest_period != month:
+        logger.warning(f"VRE capacities for {month} not found. Using latest available: {latest_period}.")
+    else:
+        logger.info(f"Found VRE capacities for {month}. Using them for calculations.")
+    month = latest_period
 
     for technology in ["solar", "wind_onshore", "wind_offshore"]:
         generation_df = pd.DataFrame()

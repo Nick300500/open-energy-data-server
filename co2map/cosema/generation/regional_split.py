@@ -40,15 +40,21 @@ matching_id_EIC = pd.read_sql(f"SELECT * FROM {INPUTS_SCHEMA}.matching_id_bna_ei
 entsoe_gen_types = gen_types
 
 
-def _conv_capacities_exist(period: str) -> bool:
-    """Whether cosema_inputs.capacities_conventional has rows for the given
-    period -- replaces the old os.path.isfile(check_path) probe now that
-    capacities come from the DB (see the standalone "Transfer data to
-    database" scripts) instead of local parquet files."""
-    query = f'SELECT 1 FROM "{INPUTS_SCHEMA}".capacities_conventional WHERE period = %(period)s LIMIT 1'
+def _latest_conv_capacities_period(at_or_before: str):
+    """Most recent period in cosema_inputs.capacities_conventional at or
+    before the given YYYY_MM period, or None if there's none at all.
+    Replaces the old fixed 6-month lookback loop (subtract 30d, retry, up to
+    6 times) -- that silently ran out once real data got more than 6 months
+    stale, crashing with UnboundLocalError one statement later (found
+    2026-08-28: the only period uploaded so far, 2026_02, was one month
+    older than 6 months back from the then-current month)."""
+    query = (
+        f'SELECT period FROM "{INPUTS_SCHEMA}".capacities_conventional '
+        "WHERE period <= %(at_or_before)s ORDER BY period DESC LIMIT 1"
+    )
     with get_engine().connect() as conn:
-        result = pd.read_sql(query, conn, params={"period": period})
-    return not result.empty
+        result = pd.read_sql(query, conn, params={"at_or_before": at_or_before})
+    return result["period"].iloc[0] if not result.empty else None
 
 
 def _load_conv_capacities(period: str) -> pd.DataFrame:
@@ -332,22 +338,19 @@ def calculate_regionalized_gen_and_demand(
 
     month = start.strftime("%Y_%m")
 
-    attempt = 0
-    max_attempts = 6
-
-    while attempt < max_attempts:
-        if _conv_capacities_exist(month):
-            logger.info(f"Found conventional capacities for {month}. Using them for calculations.")
-            regional_capacities = _load_conv_capacities(month)
-            break  # Found the period; exit loop.
-        else:
-            logger.warning(
-                f"Conventional capacities for {month} not found. Using values from last months."
-            )
-            # Subtract ~1 month (30 days) from `start`, then recalc `month`
-            start = start - pd.Timedelta("30d")
-            month = start.strftime("%Y_%m")
-            attempt += 1
+    latest_period = _latest_conv_capacities_period(month)
+    if latest_period is None:
+        raise RuntimeError(
+            f"No conventional capacities found in {INPUTS_SCHEMA}.capacities_conventional "
+            f"at or before {month}"
+        )
+    if latest_period != month:
+        logger.warning(
+            f"Conventional capacities for {month} not found. Using latest available: {latest_period}."
+        )
+    else:
+        logger.info(f"Found conventional capacities for {month}. Using them for calculations.")
+    regional_capacities = _load_conv_capacities(latest_period)
 
     # remove columns from regional_capacities which are not in gen_types
     columns_to_remove = list(set(regional_capacities.columns) - set(gen_types))

@@ -15,7 +15,7 @@ from cosema.ingestion.entsoe import download_demand_forecast_data
 from cosema.logging import get_handlers
 
 handlers = get_handlers(log_path="logs/forecast.log")
-logging.basicConfig(level=logging.INFO, handlers=handlers)
+logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
 
 logger = logging.getLogger(__name__)
 
