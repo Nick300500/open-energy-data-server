@@ -16,6 +16,7 @@ database" scripts, kept outside this repo) and read from there instead.
 import pandas as pd
 
 from cosema.input_output.db_engine import INPUTS_SCHEMA, get_engine
+from cosema.regions import BUSES
 
 
 def load_demand_reg_factors(index: pd.DatetimeIndex) -> pd.DataFrame:
@@ -35,5 +36,23 @@ def load_demand_reg_factors(index: pd.DatetimeIndex) -> pd.DataFrame:
     demand_reg_factors_all = demand_reg_factors_all[
         ~demand_reg_factors_all.index.duplicated(keep="first")
     ]
+
+    # Pre-existing inconsistency in the original source CSVs, found 2026-08-29
+    # debugging a real deploy: demand_reg_factors_2019.csv (and the unsuffixed
+    # base file it was itself derived from) has 3 extra columns (BE, HB, HH --
+    # the city-states) that every later year's file (2020-2026) dropped.
+    # cosema/regions.py::BUSES never included those 3 to begin with, so
+    # nothing else in this codebase can use them anyway. The old, pre-DB
+    # per-year CSV loader never surfaced this (it only ever read the file(s)
+    # for the specific requested year, so a 2026 run never touched 2019's
+    # file) -- concatenating every year into one DB table exposed it: the
+    # combined table has all 16 columns (NaN for BE/HB/HH outside 2019), and
+    # reg_demand_data_dynamic's demand_DE.values * reg_factors.values crashed
+    # with a (13,) vs (16,) shape mismatch during the fallback path (see
+    # get_demand_data(), which hardcodes columns=BUSES) whenever it hit real
+    # data gaps. Reindexing to BUSES here -- not just trimming the DB table
+    # once -- keeps this correct even if a future upload reintroduces the
+    # extra columns.
+    demand_reg_factors_all = demand_reg_factors_all.reindex(columns=BUSES)
 
     return demand_reg_factors_all.loc[index]
