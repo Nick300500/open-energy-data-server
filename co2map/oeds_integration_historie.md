@@ -116,6 +116,39 @@ Das macht den bis dahin recherchierten Prefect-Umbau (`prefect.yaml`, `@flow`-Ko
 - TimescaleDB-Erweiterung auf dem Server: unklar, ob/wie stark genutzt — laut Kollege "nicht dramatisch", falls
   nicht vorhanden. Unser `DBClient` legt eigene Tabellen als Hypertables an, setzt das also implizit voraus.
 
+## 2026-08-28/29: Erster echter Deploy, Gurobi-Lizenz, End-to-End-Verifikation
+
+Der `co2map`-Service läuft seit 2026-08-28 produktiv im Staging-`compose.yml` des Servers (eigener Container,
+`./co2map:/app` als Live-Mount statt Rebuild bei jeder Änderung — Frage 3 oben damit beantwortet: `git pull` +
+`docker compose up -d --build co2map` reicht). Alle drei Scheduler (`initial_calculations`,
+`updated_calculations`, `forecast_calculations`) laufen stabil, keine Crash-Loops mehr. Iterative Fixes dazu (u.a.
+lokale-Datei-Reste, Capacity-Lookback, Logging-Sichtbarkeit, Spalten-Inkonsistenz `demand_reg_factors`) sind im
+Git-Log dokumentiert, nicht hier dupliziert.
+
+**Gurobi-Lizenz**: die alte Windows/WSL-gebundene Lizenz (siehe Eintrag 2026-08-04) ist am 2025-11-24 abgelaufen.
+Für den Server-Container **Gurobi WLS (Web License Service)** beantragt statt einer normalen Named-User-
+Akademiklizenz — Named-User verlangt eine Aktivierung im Uni-Netzwerk, was ein externer Server nicht erfüllt; WLS
+funktioniert von überall, genau für Cloud-/Container-Deployments gedacht. Eingebaut wie die anderen Secrets
+(`ENTSOE_API_KEY`, `CDSAPI_KEY`): `gurobi.lic`-Datei liegt **außerhalb des Repos** unter
+`data/co2map-secrets/gurobi.lic` auf dem Server (nicht committed), read-only in den Container gemountet
+(`/app/gurobi.lic`), `GRB_LICENSE_FILE` zeigt darauf. Stolperfalle beim ersten Einrichten: Docker legt beim
+allerersten Hochfahren automatisch ein leeres Verzeichnis am Bind-Mount-Ziel an, falls die Quelldatei zu dem
+Zeitpunkt noch nicht existiert — sowohl host- als auch containerseitig (`/app/gurobi.lic` lag da schon als leerer
+Ordner in der `./co2map`-Repo-Kopie). Nach Anlegen der echten Datei musste dieser Ordner manuell entfernt und der
+Container mit `docker compose rm -f co2map` (nicht nur `restart`) neu angelegt werden, damit der Mount als Datei
+statt Verzeichnis erkannt wird.
+
+**Verifikation der Fachlogik** (Anlass: der Community-ENTSO-E-Crawler von OEDS stand seit 2026-07-27 für alle
+Zonen/Datenarten still, wodurch die Live-Läufe nur Nullwerte sahen und `calc_intensities.py` mit einem
+`IndexError` abstürzte — auf ausdrücklichen Wunsch **nicht** defensiv gepatcht, sondern stattdessen echt
+verifiziert). Eigens dafür `scripts/test_pipeline_real_data.py` gebaut: Pipeline für ein bestätigtes
+Echtdaten-Fenster (2026-07-21–22) ohne eigene Downloads laufen lassen. Ergebnis am 2026-08-29 (nach Einbau der
+WLS-Lizenz): komplette Pipeline läuft durch — Regionalisierung, SIGI-Balancing, PyPSA/Gurobi-Netzwerkoptimierung
+(optimale Lösung), Flow-Tracing, Intensitätsberechnung, Schreiben in `cosema.co2_intensity`. Nur erwartete
+Datenlücken-Warnings (fehlende VRE-/Länderdaten im Testfenster), kein Fehler. Bestätigt: die Kernlogik war die
+ganze Zeit korrekt, der `IndexError` war ausschließlich ein Symptom der Nulldaten während des Crawler-Ausfalls,
+kein eigener Bug — der Ausfall wurde separat beim Server-Kollegen gemeldet.
+
 ## Referenzierte Auftragstexte (archiviert)
 
 ### `TASK_dbclient_rewrite.md` (ursprünglicher Auftrag, Task jetzt abgeschlossen)
