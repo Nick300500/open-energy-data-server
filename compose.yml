@@ -210,6 +210,10 @@ services:
       # read-only in practice (nothing in this codebase writes there), just
       # not enforced at the mount level.
       - ./data/co2map-static-inputs:/app/inputs
+      # Gurobi WLS academic license (2026-08-29), needed by
+      # cosema/balance.py::internal_sigma_approach's Pyomo/Gurobi solve step.
+      # Read-only -- nothing in the code writes to this file.
+      - ./data/co2map-secrets/gurobi.lic:/app/gurobi.lic:ro
     environment:
       # DB_HOST confirmed by the server colleague (2026-08-26): open-data-17,
       # its own service name -- containers address each other by service name
@@ -236,6 +240,8 @@ services:
       # URL is hardcoded in the vendored code to the current CDS endpoint,
       # so only the key is needed here, not a CDSAPI_URL.
       CDSAPI_KEY: ${CDSAPI_KEY}
+      # Points gurobipy at the mounted WLS license file above.
+      GRB_LICENSE_FILE: /app/gurobi.lic
       LOG_LEVEL: INFO
 
   postgres-metabase:
