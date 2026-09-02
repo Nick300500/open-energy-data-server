@@ -24,6 +24,13 @@ from cosema.balance import (
 # Set up logging
 logger = logging.getLogger(__name__)
 
+
+class NoDataAvailableError(Exception):
+    """Raised when a requested period has no non-zero generation data at all
+    (e.g. an upstream data gap like a stalled ENTSO-E crawler), as opposed to
+    a real code bug."""
+
+
 # Constants
 CONFIG_PATH = "config.yaml"
 NETWORK_INPUT_PATH = "inputs/networks/elec_s_37"
@@ -119,6 +126,14 @@ def collect_and_prepare_data(start, end, db_client, mode="with_per_unit"):
         # also get all zero rows in gen_per_region at the end of the dataframe
         # Identify all-zero rows
         all_zeros = gen_per_region.eq(0).all(axis=1)
+        if all_zeros.all():
+            # No real data anywhere in the window -- e.g. the ENTSO-E crawler
+            # stalled and every value came back 0.0 above. Raise a clear,
+            # specific error instead of letting the next line crash with an
+            # unrelated IndexError (empty index has no [-1]).
+            raise NoDataAvailableError(
+                f"No non-zero generation data for period {start} - {end}."
+            )
         # Find the first valid index
         first_non_zero_from_bottom = gen_per_region[~all_zeros].index[-1]
 
@@ -577,14 +592,22 @@ def get_country_intensities(
 def calculate_intensities(start, end, db_client, mode="with_per_unit"):
     # STEP 1: Query generation, demand and crossborder flows from the database
     logger.info("Querying and preparing data from database.")
-    (
-        gen_per_country,
-        demand_per_country,
-        cross_border_flows,
-        gen_per_region,
-        demand_per_region,
-        cross_regions_flow,
-    ) = collect_and_prepare_data(start=start, end=end, db_client=db_client, mode=mode)
+    try:
+        (
+            gen_per_country,
+            demand_per_country,
+            cross_border_flows,
+            gen_per_region,
+            demand_per_region,
+            cross_regions_flow,
+        ) = collect_and_prepare_data(start=start, end=end, db_client=db_client, mode=mode)
+    except NoDataAvailableError as error:
+        logger.warning(
+            f"Skipping intensity calculation for {start} - {end}: {error} "
+            "No data to work with -- not a code error, likely an upstream "
+            "data gap (e.g. the ENTSO-E crawler)."
+        )
+        return
 
     # get the end date of the data in case it was shortened
     new_end = gen_per_country.index[-1]
