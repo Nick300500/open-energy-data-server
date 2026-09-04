@@ -176,74 +176,6 @@ services:
       - default
       - proxy
 
-  co2map:
-    build:
-      context: ./co2map
-      dockerfile: Dockerfile
-    container_name: oeds-co2map
-    restart: unless-stopped
-    depends_on:
-      - open-data-17
-    volumes:
-      - ./co2map:/app
-      # Static/local-file inputs that stay as files rather than moving into
-      # Postgres: weather cutouts (NetCDF, server colleague's call
-      # 2026-08-24 -- the format is already built for this) and the PyPSA
-      # reference network (inputs/networks/*.nc, needed by
-      # cosema/calc_intensities.py::prepare_and_solve_network for the
-      # consumption-side flow tracing -- confirmed 2026-08-29 to be on the
-      # live path every scheduled run takes, not deferred/optional as
-      # earlier assumed here). One combined mount since both are just
-      # subfolders of inputs/ in the code (inputs/cutouts/{month}/...,
-      # inputs/networks/elec_s_37_*.nc) -- server-side directory still needs
-      # the colleague to confirm/create ./data/co2map-static-inputs (a
-      # placeholder following this repo's own convention for persistent host
-      # paths, see ./data/open-data-ha, ./data/pgadmin above), with
-      # `networks/` populated by the same (separate, external) upload
-      # process as everything else.
-      # NOT read-only: cosema/generation/vre.py::create_cutout() calls
-      # atlite's cutout.prepare(), which downloads and writes a NEW cutout
-      # file into inputs/cutouts/{month}/ itself (via the Climate Data Store
-      # API, see cdsapi -- separate open question, needs real CDS
-      # credentials) whenever the requested one doesn't exist yet. A
-      # read-only mount would break that -- inputs/networks/ happens to be
-      # read-only in practice (nothing in this codebase writes there), just
-      # not enforced at the mount level.
-      - ./data/co2map-static-inputs:/app/inputs
-      # Gurobi WLS academic license (2026-08-29), needed by
-      # cosema/balance.py::internal_sigma_approach's Pyomo/Gurobi solve step.
-      # Read-only -- nothing in the code writes to this file.
-      - ./data/co2map-secrets/gurobi.lic:/app/gurobi.lic:ro
-    environment:
-      # DB_HOST confirmed by the server colleague (2026-08-26): open-data-17,
-      # its own service name -- containers address each other by service name
-      # inside the compose network.
-      DB_HOST: ${DB_HOST}
-      # NOT ${DB_PORT} (that's 7432, the port open-data-17 is mapped to on
-      # the HOST for external access, e.g. from a laptop -- see
-      # `ports: "${DB_PORT}:5432"` on open-data-17 above). From inside the
-      # compose network, Postgres is reachable directly on its own container
-      # port, 5432, regardless of what DB_PORT is set to externally. Hardcoded
-      # (not a variable) since it's an internal-network constant, not
-      # server-specific config.
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      # Same var prefect-worker already uses above -- replaces co2map's old
-      # keys.yaml file (never set up for this container; removed 2026-08-28).
-      ENTSOE_API_KEY: ${ENTSOE_API_KEY}
-      # cosema/generation/vre.py's weather-cutout generation (via atlite,
-      # Vendor/atlite/datasets/meteo.py) calls cdsapi.Client() with no
-      # explicit key -- cdsapi 0.7.7 reads this env var itself (confirmed by
-      # inspecting the installed package), no code change needed. The API
-      # URL is hardcoded in the vendored code to the current CDS endpoint,
-      # so only the key is needed here, not a CDSAPI_URL.
-      CDSAPI_KEY: ${CDSAPI_KEY}
-      # Points gurobipy at the mounted WLS license file above.
-      GRB_LICENSE_FILE: /app/gurobi.lic
-      LOG_LEVEL: INFO
-
   postgres-metabase:
     image: postgres:16
     restart: unless-stopped
@@ -254,6 +186,30 @@ services:
       POSTGRES_USER: metabase
       POSTGRES_DB: metabaseappdb
       POSTGRES_PASSWORD: ${POSTGRES_METABASE_PW}
+
+  co2map:
+    build:
+      context: ./co2map
+      dockerfile: Dockerfile
+    container_name: oeds-co2map
+    restart: unless-stopped
+    depends_on:
+      - open-data-17
+    volumes:
+      - ./co2map:/app
+      - ./data/co2map-static-inputs:/app/inputs
+      - ./data/co2map-secrets/gurobi.lic:/app/gurobi.lic:ro
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      ENTSOE_API_KEY: ${ENTSOE_API_KEY}
+      CDSAPI_KEY: ${CDSAPI_KEY}
+      GRB_LICENSE_FILE: /app/gurobi.lic
+      LOG_LEVEL: INFO
+
 volumes:
   prefect_postgres_data:
   metabase_postgres_data:
@@ -263,3 +219,4 @@ networks:
   proxy:
     external: true
     name: proxy
+
