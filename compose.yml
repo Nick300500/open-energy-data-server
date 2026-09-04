@@ -218,11 +218,11 @@ services:
       - ./data/co2map-static-inputs:/app/inputs
       - ./data/co2map-secrets/gurobi.lic:/app/gurobi.lic:ro
     environment:
-      DB_HOST: ${DB_HOST}
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: ${CO2MAP_DB_HOST}
+      DB_PORT: ${CO2MAP_DB_PORT}
+      DB_NAME: ${CO2MAP_DB_NAME}
+      DB_USER: ${CO2MAP_DB_USER}
+      DB_PASSWORD: ${CO2MAP_DB_PASSWORD}
       ENTSOE_API_KEY: ${ENTSOE_API_KEY}
       CDSAPI_KEY: ${CDSAPI_KEY}
       GRB_LICENSE_FILE: /app/gurobi.lic
