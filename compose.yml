@@ -187,6 +187,23 @@ services:
       POSTGRES_DB: metabaseappdb
       POSTGRES_PASSWORD: ${POSTGRES_METABASE_PW}
 
+  grafana:
+    image: grafana/grafana-oss:latest
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      READONLY_PW: ${READONLY_PW}
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+      - ./data/provisioning/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./data/provisioning/grafana/dashboardproviders:/etc/grafana/provisioning/dashboards
+      - ./data/provisioning/grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "${GRAFANA_PORT}:3000"
+    depends_on:
+      - open-data-17
+
   co2map:
     build:
       context: ./co2map

@@ -15,14 +15,14 @@ deleteDatasources:
 datasources:
 - name: OPENDATA
   type: postgres
-  url: open-data-16:5432
+  url: open-data-17:5432
   user: readonly
   database: opendata
   secureJsonData:
-    password: readonly
+    password: '$__env{READONLY_PW}'
   jsonData:
     sslmode: "disable"
-    postgresVersion: 1600
+    postgresVersion: 1700
     timescaledb: true
   isDefault: true
   editable: true
