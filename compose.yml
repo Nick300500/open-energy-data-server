@@ -188,6 +188,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_METABASE_PW}
 
   grafana:
+    user: root
     image: grafana/grafana-oss:latest
     restart: unless-stopped
     environment:
