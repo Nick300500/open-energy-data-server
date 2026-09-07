@@ -22,11 +22,11 @@ nicht-tabellarischen Input-Dateien.
 
 ## 2026-08-12: Erste Recherche zum OEDS-Repo
 
-- Server-Kollege bestätigt: OEDS hat bereits einen eigenen ENTSO-E-Crawler, der Erzeugung nach Land+Typ, Verbrauch
-  nach Land und Cross-Border-Flows liefert — für diese drei Datenarten bräuchten wir vermutlich keine eigene
-  Ingestion mehr, nur lesenden Zugriff auf `entsoe_raw`/`entsoe`.
+- Bestätigt: OEDS hat bereits einen eigenen ENTSO-E-Crawler, der Erzeugung nach Land+Typ, Verbrauch nach Land und
+  Cross-Border-Flows liefert — für diese drei Datenarten bräuchten wir vermutlich keine eigene Ingestion mehr, nur
+  lesenden Zugriff auf `entsoe_raw`/`entsoe`.
 - Kraftwerksblock-Feindaten (per-unit) gibt es dort noch nicht.
-- Metabase-Tabellenabgleich (Screenshots von Nick): 3 von 6 benötigten ENTSO-E-Inputs abgedeckt (Erzeugung,
+- Metabase-Tabellenabgleich (per Screenshot geprüft): 3 von 6 benötigten ENTSO-E-Inputs abgedeckt (Erzeugung,
   Verbrauch, Cross-Border-Flows — Cross-Border in 3 Varianten, davon ist "Physical Flows" die fachlich richtige).
   Wichtiger Fallstrick: Metabase "verschönert" Spalten-/Tabellennamen nur für die Anzeige, echte Namen vor
   Nutzung über pgAdmin/SQL verifizieren.
@@ -35,8 +35,7 @@ nicht-tabellarischen Input-Dateien.
   eigenes Postgres-Schema pro Crawler, Hypertable-Erstellung über die Basisklasse). **Diese Einschätzung wurde am
   2026-08-17 korrigiert, siehe unten** — der Branch ist inzwischen veraltet.
 - Separater `entsoe/`-Analyseordner auf diesem Branch enthält Flow-Tracing/Pooling-Funktionen, fachlich nah an
-  unserem SIGI-Balancing — Ursprung/Verwandtschaft zu unserer eigenen Logik nie abschließend geklärt (offene
-  Frage ans Meeting, siehe unten).
+  unserem SIGI-Balancing — Ursprung/Verwandtschaft zu unserer eigenen Logik nie abschließend geklärt.
 
 ## 2026-08-13/14: DBClient-Umbau (eigener Task)
 
@@ -75,10 +74,10 @@ Auch an diesem Tag: Dateigrößen der großen statischen Inputs ermittelt (MaStR
 und Secrets-Struktur von OEDS konkret recherchiert (`.env_template`, `oeds/base_crawler.py::load_config()`) —
 letzteres beruhte auf dem `entsoe`-Branch und ist seit 2026-08-17 mit Vorsicht zu genießen (siehe unten).
 
-## 2026-08-17: Kollegen-Mail — DBClient-Ansatz bestätigt, Crawler-Vorlage revidiert
+## 2026-08-17: DBClient-Ansatz bestätigt, Crawler-Vorlage revidiert
 
-- **DBClient/SQL-Ansatz bestätigt**: Kollege beschreibt unabhängig genau den Ansatz, den wir schon umgesetzt
-  hatten — keine inhaltliche Änderung nötig.
+- **DBClient/SQL-Ansatz bestätigt**: unabhängig genau der Ansatz, den wir schon umgesetzt hatten — keine
+  inhaltliche Änderung nötig.
 - **Wichtige Korrektur**: Crawler-Skripte liegen mittlerweile **absichtlich nicht mehr im
   `open-energy-data-server`-Repo selbst**, sondern in einem **eigenen, separaten Repository**, das Prefect täglich
   zieht und einmal ausführt. Der `entsoe`-Branch (unsere bisherige Strukturvorlage, `oeds/base_crawler.py`/
@@ -88,7 +87,7 @@ letzteres beruhte auf dem `entsoe`-Branch und ist seit 2026-08-17 mit Vorsicht z
   (`db_uri`, `entsoe_api_key` etc.) — das war spezifisch fürs alte Crawler-Muster, gilt für unseren Fall evtl.
   nicht mehr (siehe nächster Punkt, 2026-08-19).
 
-## 2026-08-19: Meeting mit dem Server-Kollegen — größter Architektur-Pivot
+## 2026-08-19: Größter Architektur-Pivot
 
 **Zentrale Erkenntnis**: die CO2-Map wird **kein** Prefect-Crawler/-Flow — sie läuft als **dauerhafter Service** in
 einem **eigenen Container** (`compose.yml`-Eintrag), analog zu Grafana/der Datenbank im bestehenden Stack. Prefect
@@ -97,33 +96,34 @@ einmal täglich anstoßen, fertig) — nicht für einen Dauerbetrieb.
 
 Das macht den bis dahin recherchierten Prefect-Umbau (`prefect.yaml`, `@flow`-Konvertierung unserer Scheduler,
 `config.yml`/`CrawlerConfig`) für unseren Hauptteil **hinfällig**. Stattdessen: eigenes **Dockerfile** + Eintrag in
-(vermutlich) OEDS's `compose.yml`. Weitere Klärungen aus diesem Austausch:
+(vermutlich) OEDS's `compose.yml`. Weitere Klärungen aus diesem Zeitraum:
 
 - **Gurobi**: kein Problem mehr mit einem geteilten Server-Worker — kommt isoliert ins eigene Dockerfile. Nur noch
   offen: richtige Lizenzform besorgen (Linux/floating statt der alten Windows-WSL-Lizenz).
 - **Grafana**: keine Rückfrage nötig — wir wissen aus der 2026-08-12-Recherche schon, dass OEDS ein gemeinsames
   Grafana betreibt (Dashboard-JSON-Provisionierung), unsere fertigen `*_timescaledb.json`-Dashboards docken dort
-  an, kein eigener Container nötig.
-- **Große Dateien**: Kollege schlägt vor, regelmäßig aktualisierte Daten könnten in die normale DB + ein
-  Prefect-automatisiertes Sync-Skript. Nachfrage unsererseits: das passt gut auf die echte Zeitreihe
-  (Wetter-Cutouts), fraglich für MaStR (ein Register, keine Zeitreihe) — Kollege wollte MaStR aber ausdrücklich
-  auch in die DB haben. Als Alternativvorschlag entwickelt: MaStR (liegt lokal als SQLite `.db` vor) ließe sich
-  als eigenes, normales Postgres-Schema migrieren (keine Hypertable, da nicht zeitindiziert) — z.B. über
-  `pandas.read_sql`/`to_sql`, analog zu dem, was `DBClient.write_df` schon kann.
+  an, kein eigener Container nötig. **Revidiert am 2026-09-03, siehe unten** — im tatsächlich laufenden
+  `compose.yml` gab es zu dem Zeitpunkt noch gar keinen aktiven Grafana-Service.
+- **Große Dateien**: Vorschlag, regelmäßig aktualisierte Daten könnten in die normale DB + ein
+  Prefect-automatisiertes Sync-Skript. Das passt gut auf die echte Zeitreihe (Wetter-Cutouts), fraglich für MaStR
+  (ein Register, keine Zeitreihe) — MaStR sollte aber ausdrücklich auch in die DB. Als Alternativvorschlag
+  entwickelt: MaStR (liegt lokal als SQLite `.db` vor) ließe sich als eigenes, normales Postgres-Schema migrieren
+  (keine Hypertable, da nicht zeitindiziert) — z.B. über `pandas.read_sql`/`to_sql`, analog zu dem, was
+  `DBClient.write_df` schon kann.
 - Klassifizierung der großen Dateien nach Zeitreihen-Eigenschaft erarbeitet: MaStR/Shapefiles/Netzwerk-Dateien =
   statisch (keine Zeitreihe), Wetter-Cutouts = echte Zeitreihe, Kapazitäts-Parquets/Demand-Faktoren = grobe
   periodische Schnappschüsse (monatlich/jährlich).
-- TimescaleDB-Erweiterung auf dem Server: unklar, ob/wie stark genutzt — laut Kollege "nicht dramatisch", falls
-  nicht vorhanden. Unser `DBClient` legt eigene Tabellen als Hypertables an, setzt das also implizit voraus.
+- TimescaleDB-Erweiterung auf dem Server: unklar, ob/wie stark genutzt, vermutlich nicht kritisch, falls nicht
+  vorhanden. Unser `DBClient` legt eigene Tabellen als Hypertables an, setzt das also implizit voraus.
 
 ## 2026-08-28/29: Erster echter Deploy, Gurobi-Lizenz, End-to-End-Verifikation
 
 Der `co2map`-Service läuft seit 2026-08-28 produktiv im Staging-`compose.yml` des Servers (eigener Container,
-`./co2map:/app` als Live-Mount statt Rebuild bei jeder Änderung — Frage 3 oben damit beantwortet: `git pull` +
-`docker compose up -d --build co2map` reicht). Alle drei Scheduler (`initial_calculations`,
-`updated_calculations`, `forecast_calculations`) laufen stabil, keine Crash-Loops mehr. Iterative Fixes dazu (u.a.
-lokale-Datei-Reste, Capacity-Lookback, Logging-Sichtbarkeit, Spalten-Inkonsistenz `demand_reg_factors`) sind im
-Git-Log dokumentiert, nicht hier dupliziert.
+`./co2map:/app` als Live-Mount statt Rebuild bei jeder Änderung — `git pull` + `docker compose up -d --build
+co2map` reicht). Alle drei Scheduler (`initial_calculations`, `updated_calculations`, `forecast_calculations`)
+laufen stabil, keine Crash-Loops mehr. Iterative Fixes dazu (u.a. lokale-Datei-Reste, Capacity-Lookback,
+Logging-Sichtbarkeit, Spalten-Inkonsistenz `demand_reg_factors`) sind im Git-Log dokumentiert, nicht hier
+dupliziert.
 
 **Gurobi-Lizenz**: die alte Windows/WSL-gebundene Lizenz (siehe Eintrag 2026-08-04) ist am 2025-11-24 abgelaufen.
 Für den Server-Container **Gurobi WLS (Web License Service)** beantragt statt einer normalen Named-User-
@@ -138,7 +138,7 @@ Ordner in der `./co2map`-Repo-Kopie). Nach Anlegen der echten Datei musste diese
 Container mit `docker compose rm -f co2map` (nicht nur `restart`) neu angelegt werden, damit der Mount als Datei
 statt Verzeichnis erkannt wird.
 
-**Verifikation der Fachlogik** (Anlass: der Community-ENTSO-E-Crawler von OEDS stand seit 2026-07-27 für alle
+**Verifikation der Fachlogik** (Anlass: der ENTSO-E-Crawler von OEDS stand seit 2026-07-27 für alle
 Zonen/Datenarten still, wodurch die Live-Läufe nur Nullwerte sahen und `calc_intensities.py` mit einem
 `IndexError` abstürzte — auf ausdrücklichen Wunsch **nicht** defensiv gepatcht, sondern stattdessen echt
 verifiziert). Eigens dafür `scripts/test_pipeline_real_data.py` gebaut: Pipeline für ein bestätigtes
@@ -147,7 +147,58 @@ WLS-Lizenz): komplette Pipeline läuft durch — Regionalisierung, SIGI-Balancin
 (optimale Lösung), Flow-Tracing, Intensitätsberechnung, Schreiben in `cosema.co2_intensity`. Nur erwartete
 Datenlücken-Warnings (fehlende VRE-/Länderdaten im Testfenster), kein Fehler. Bestätigt: die Kernlogik war die
 ganze Zeit korrekt, der `IndexError` war ausschließlich ein Symptom der Nulldaten während des Crawler-Ausfalls,
-kein eigener Bug — der Ausfall wurde separat beim Server-Kollegen gemeldet.
+kein eigener Bug — der Ausfall wurde separat gemeldet.
+
+## 2026-09-02 bis 2026-09-07: Robustheitsfix, gemeinsames Grafana, Umstellung auf Production-DB
+
+**Robustheitsfix für Nulldaten-Fenster** (2026-09-02): der am 2026-08-29 bewusst ungepatchte `IndexError` in
+`calc_intensities.py::collect_and_prepare_data` (siehe Eintrag oben) tritt seit dem Crawler-Ausfall stündlich in
+den Live-Läufen auf. Statt eines defensiven Patches, der explizit abgelehnt worden war, jetzt eine saubere, klar
+erkennbare Lösung: neue `NoDataAvailableError`, geworfen wenn ein Zeitfenster *komplett* ohne echte Daten ist
+(alle Zeilen null) — abgefangen in `calculate_intensities` mit einer eindeutigen `WARNING`-Zeile ("... not a code
+error, likely an upstream data gap") statt Absturz. Teilweise Lücken bleiben unverändert (weiterhin nullgefüllt
+und normal verarbeitet), nur der vollständig-leere Fall wird jetzt sauber übersprungen.
+
+**Gemeinsames Grafana als eigener Container** (2026-09-03/04): Review-Feedback zum `co2map`-Block in
+`compose.yml` (fehlender Port + Frage nach der Visualisierung, zu viele Kommentare, Service-Reihenfolge zwischen
+den beiden Metabase-Containern) plus Entscheidung zur Grafana-Frage: eigener Container, nicht im `co2map`-
+Container gebündelt. Dabei fiel auf: `co2map` hat **kein eigenes Web-Frontend** (kein Flask/Streamlit/o.ä. im
+portierten Code) — die Visualisierung war immer als Grafana-Dashboards gedacht, nicht als eigene
+"Karten"-Weboberfläche; ob eine solche separat erwartet wird, ist noch unklar.
+
+Umgesetzt: neuer `grafana`-Service (`grafana/grafana-oss`, eigener Port über `GRAFANA_PORT`), `datasource.yml`
+korrigiert (zeigte noch auf die nicht mehr existierende `open-data-16`, Passwort war hart auf `readonly` codiert
+statt über Grafanas `$__env{}`-Provisioning-Syntax aus `READONLY_PW`), Platzhalter in `dashboardproviders/
+opendata.yml` ausgefüllt, unsere drei `*_timescaledb.json`-Dashboards in den gemeinsamen Provisioning-Ordner
+kopiert. Zwei Stolperfallen dabei, gleiches Muster wie schon bei `gurobi.lic`: Docker legte `./data/grafana` beim
+allerersten Start automatisch als `root`-Verzeichnis an (Grafana-Image läuft intern als UID 472, kein
+Schreibzugriff, kein `sudo` verfügbar) — gelöst wie bei `pgadmin` schon vorgemacht, mit `user: root` im Service.
+Danach lief Grafana zwar, war aber von außen nicht erreichbar (`curl` lokal auf dem Server lieferte sauber `302`,
+von außen Timeout) — Port `4002` war schlicht noch nicht in der Server-Firewall freigegeben, Freigabe angefragt.
+Direkt danach noch ein Strukturfehler beim manuellen Nachziehen der Service-Reihenfolge gefunden und korrigiert
+(`co2map`-Block landete versehentlich hinter dem `networks:`-Top-Level-Key statt unter `services:` —
+`docker compose config` hätte das beim nächsten Deploy hart abgelehnt).
+
+**Umstellung auf die Production-DB** (2026-09-04, laufend): Entscheidung, `co2map` an die Production-DB
+anzubinden — Hintergrund: der ENTSO-E-Crawler läuft in Production unverändert weiter (nur Staging steht seit
+2026-07-27 still), ansonsten sind Schema/Daten identisch. `co2map` läuft technisch weiterhin im Staging-
+Compose-Projekt, erreicht die Production-DB daher nicht über einen internen Servicenamen, sondern über die externe
+Serveradresse + Production's extern gemapptem Port (`132.230.100.67:6432`, analog zum bisherigen Zugriffsmuster
+für Staging über `:7432`). Umgesetzt über neue, `co2map`-eigene `CO2MAP_DB_*`-Variablen in `compose.yml`
+(bewusst **nicht** die bestehenden `DB_HOST`/`DB_PORT`/etc. wiederverwendet, da die weiterhin von `open-data-17`
+selbst, `prefect-worker` und `open-postgrest` für die Staging-DB gebraucht werden).
+
+**Aktueller Blocker (Stand 2026-09-07, Server gerade nicht erreichbar)**: `entsoe_raw`/`cosema_inputs` hängen im
+Code an derselben DB-Verbindung (`cosema/input_output/db_engine.py`) — die Umstellung auf Production zieht also
+auch `cosema_inputs` (MaStR, Shapefiles, Capacities, Demand-Faktoren, Gen-Type-Mapping) mit, das aber nur einmalig
+in die **Staging**-DB migriert wurde, nie nach Production. Container crasht seither mit `UndefinedTable:
+cosema_inputs.gen_types_and_emission_factors`. Direkter Check gegen die Production-DB bestätigt: Schema
+`cosema_inputs` existiert dort noch gar nicht (0 Tabellen). Erster Versuch, die "Transfer data to database"-
+Skripte gegen Production erneut laufen zu lassen, ist fehlgeschlagen, weil die lokal editierte `.env` beim
+Skriptlauf noch nicht gespeichert war (`python-dotenv` las also weiterhin die alten Staging-Werte) — die Skripte
+liefen dadurch effektiv nochmal gegen Staging (harmlos, dort lag alles schon, nur am falschen Ziel). Noch offen:
+`.env` diesmal wirklich gespeichert nochmal gegen Production laufen lassen, sobald der Server wieder erreichbar
+ist.
 
 ## Referenzierte Auftragstexte (archiviert)
 
@@ -175,4 +226,4 @@ verwenden**): `oeds/base_crawler.py`, `oeds/crawler/entsoe_crawler.py`, `Dockerf
 `entsoe/main.py`, `entsoe/config.py`, `entsoe/postgres_utils.py`,
 `entsoe/inputs/generation_data/gen_types_and_emission_factors.csv`, Funktionssignaturen aus `entsoe/data_analysis.py`.
 
-**Metabase**: Screenshots von Nick (Datenbank `opendata`, Schemas `entsoe_raw` und `entsoe`), Stand 2026-08-12.
+**Metabase**: Screenshots (Datenbank `opendata`, Schemas `entsoe_raw` und `entsoe`), Stand 2026-08-12.
