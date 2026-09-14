@@ -200,10 +200,16 @@ services:
       - ./data/provisioning/grafana/datasources:/etc/grafana/provisioning/datasources
       - ./data/provisioning/grafana/dashboardproviders:/etc/grafana/provisioning/dashboards
       - ./data/provisioning/grafana/dashboards:/var/lib/grafana/dashboards
-    ports:
-      - "${GRAFANA_PORT}:3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.grafana.entrypoints=grafana"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
     depends_on:
       - open-data-17
+    networks:
+      - default
+      - proxy
 
   co2map:
     build:
