@@ -36,11 +36,11 @@ handlers = get_handlers(log_path="logs/test_pipeline_real_data.log")
 logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
 logger = logging.getLogger(__name__)
 
-# Confirmed real (if gappy) entsoe_raw data in this window, verified
-# 2026-08-21/2026-08-28 sessions -- see co2map/oeds_integration_plan.md and
-# this script's own docstring.
-START = pd.Timestamp("2026-07-21 00:00", tz="UTC")
-END = pd.Timestamp("2026-07-22 00:00", tz="UTC")
+# Default window has generation and demand data in production's entsoe_raw
+# (checked 2026-09-21: demand ends 2026-09-19 21:45 UTC). Override with
+# TEST_START / TEST_END, e.g. TEST_START="2026-09-18 00:00" TEST_END="2026-09-19 00:00".
+START = pd.Timestamp(os.environ.get("TEST_START", "2026-09-18 00:00"), tz="UTC")
+END = pd.Timestamp(os.environ.get("TEST_END", "2026-09-19 00:00"), tz="UTC")
 
 db_client = DBClient(
     database_name=os.environ.get("DB_NAME", "opendata"),
