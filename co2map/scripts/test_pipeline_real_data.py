@@ -36,11 +36,12 @@ handlers = get_handlers(log_path="logs/test_pipeline_real_data.log")
 logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
 logger = logging.getLogger(__name__)
 
-# Default window has generation and demand data in production's entsoe_raw
-# (checked 2026-09-21: demand ends 2026-09-19 21:45 UTC). Override with
-# TEST_START / TEST_END, e.g. TEST_START="2026-09-18 00:00" TEST_END="2026-09-19 00:00".
-START = pd.Timestamp(os.environ.get("TEST_START", "2026-09-18 00:00"), tz="UTC")
-END = pd.Timestamp(os.environ.get("TEST_END", "2026-09-19 00:00"), tz="UTC")
+# Default window has complete generation and demand data (96 rows/day each
+# for DE_LU) in production's entsoe_raw, checked 2026-09-21. Production has
+# multi-day gaps elsewhere (e.g. 2026-09-15..18), so check per-day row counts
+# before picking another window. Override with TEST_START / TEST_END.
+START = pd.Timestamp(os.environ.get("TEST_START", "2026-09-10 00:00"), tz="UTC")
+END = pd.Timestamp(os.environ.get("TEST_END", "2026-09-11 00:00"), tz="UTC")
 
 db_client = DBClient(
     database_name=os.environ.get("DB_NAME", "opendata"),
