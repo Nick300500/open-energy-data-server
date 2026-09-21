@@ -171,14 +171,41 @@ class DBClient:
         for key, value in tags.items():
             insert_df[key] = value
 
-        insert_df.to_sql(
-            measurement,
-            self.engine,
-            schema=self.schema,
-            if_exists="append",
-            index=False,
-            method="multi",
-        )
+        # InfluxDB overwrote a point with the same timestamp and tags; a plain
+        # append would keep every re-run as an extra row, and the SUM/AVG in
+        # _read_aggregated would then multiply or blend old and new values.
+        # Only rows carrying a value in one of the columns written here are
+        # replaced: write_vre_data writes "Generation [MW]" and "reg_factor"
+        # as separate writes for the same time and tags.
+        times = list(pd.DatetimeIndex(insert_df["time"]).to_pydatetime())
+        conditions = [
+            '"time" >= :t_min',
+            '"time" <= :t_max',
+            '"time" = ANY(CAST(:times AS timestamptz[]))',
+        ]
+        params = {"t_min": min(times), "t_max": max(times), "times": times}
+        for i, (key, value) in enumerate(tags.items()):
+            conditions.append(f"{_quote_ident(key)} = :tag_{i}")
+            params[f"tag_{i}"] = str(value)
+        has_value = " OR ".join(f"{_quote_ident(c)} IS NOT NULL" for c in value_columns)
+        conditions.append(f"({has_value})")
+
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    f"DELETE FROM {_quote_ident(self.schema)}.{_quote_ident(measurement)} "
+                    f"WHERE {' AND '.join(conditions)}"
+                ),
+                params,
+            )
+            insert_df.to_sql(
+                measurement,
+                conn,
+                schema=self.schema,
+                if_exists="append",
+                index=False,
+                method="multi",
+            )
 
     def _table_exists(self, measurement: str) -> bool:
         with self.engine.connect() as conn:
