@@ -200,6 +200,60 @@ liefen dadurch effektiv nochmal gegen Staging (harmlos, dort lag alles schon, nu
 `.env` diesmal wirklich gespeichert nochmal gegen Production laufen lassen, sobald der Server wieder erreichbar
 ist.
 
+## 2026-09-13 bis 2026-09-22: Production-DB-Verbindung, Grafana über Traefik, Doppelte-Zeilen-Fix
+
+**Production-DB erreichbar gemacht** (2026-09-21): Der Container konnte die öffentliche IP des eigenen Hosts von
+innen nicht erreichen (`Network is unreachable` auf Port 6432) — klassisches Docker-Verhalten, ein Container
+erreicht die externe Adresse seines eigenen Hosts oft nicht direkt. Gelöst über `extra_hosts:
+host.docker.internal:host-gateway` im `co2map`-Service plus `CO2MAP_DB_HOST=host.docker.internal` in der `.env`.
+Danach fehlte noch das komplette `cosema_inputs`-Schema in Production (nur einmalig nach Staging migriert) — die
+"Transfer data to database"-Skripte erneut gegen Production laufen lassen, diesmal mit tatsächlich gespeicherter
+`.env`, hat alle 16 Tabellen angelegt.
+
+**Grafana über Traefik statt direktem Port** (2026-09-13/14): Auf Nachfrage zur Visualisierung (kein eigenes
+Web-Frontend im portierten Code, nur Grafana-Dashboards geplant) und zur Reverse-Proxy-Frage kam die Rückmeldung,
+Grafana wie Metabase über Traefik zu routen, aber ohne eigene Domain (nur `<ip>:<port>`). Traefiks eigene Config
+(`/srv/traefik/`, nicht Teil dieses Repos) zeigt: Let's Encrypt stellt grundsätzlich keine Zertifikate für nackte
+IPs aus, und der `web`-Entrypoint (Port 80) leitet zwingend auf HTTPS um — das Metabase-Muster (Host-Domain +
+`websecure` + Zertifikat) funktioniert also nur mit Domain. Stattdessen: eigener, dedizierter `grafana`-Entrypoint
+(reines HTTP, kein Zertifikat) analog zum bestehenden `ping`-Entrypoint. Das spart keinen Firewall-Eintrag (der
+neue Port muss trotzdem freigegeben werden), zentralisiert aber das Routing in Traefik. Umgesetzt in
+`compose.yml` (Labels + `networks: default, proxy` statt `ports:`); die beiden nötigen Ergänzungen in Traefiks
+eigener Config (neuer Entrypoint, neuer Port) liegen außerhalb des Repo-Zugriffs.
+
+**Nach der Umstellung: stündlicher Live-Lauf findet keine Daten** — Testlauf für ein Fenster ohne ENTSO-E-Daten
+(18.09.) ergab durchgehend 0 g/kWh. Systematische Prüfung der `entsoe_raw`-Tabellen ergab zwei getrennte Befunde,
+beide gemeldet: (1) an mehreren Tagen (30.08.–01.09., 05.–07.09., 15.–18.09.) fand für **alle** Zonen gleichzeitig
+kein Crawler-Lauf statt (erkennbar an der `download_timestamp`-Spalte) — der Crawler holt verpasste Tage nicht von
+selbst nach; (2) die aktuellsten Daten hinken der Gegenwart 1–2 Tage hinterher (Verbrauch stand am 21.09. erst bei
+19.09. 21:45 UTC), was ausschließlich den stündlichen Live-Lauf betrifft (24h-Fenster bis "jetzt") — der tägliche
+Lauf (Fenster endet 7 Tage in der Vergangenheit) ist davon nicht betroffen.
+
+**Gefundener und behobener Bug: Doppelte Zeilen durch fehlendes Überschreiben** (2026-09-21/22): Beim
+Nachrechnen eines lückenlosen Tages (10.09.) fielen unplausible Summen auf (z.B. Solar in Baden-Württemberg
+~23.000 statt ~2.200 MW). Ursache: `DBClient.write_df` hängt bei jedem Schreiben nur an (`if_exists="append"`).
+Da die Scheduler-Fenster sich stark überlappen (stündlicher Lauf rechnet z.B. jede Stunde bis zu 24-mal neu),
+sammelten sich pro Zeitstempel bis zu 26 Zeilen an, und die Leser summierten/mittelten unbemerkt über alle. Bei
+InfluxDB (vor der Portierung) überschrieb ein neuer Punkt mit gleichem Zeitstempel und gleichen Tags automatisch
+den alten — dieses Verhalten fehlte in der Postgres-Version komplett. Betroffen waren alle sechs `cosema`-Tabellen
+in unterschiedlichem Ausmaß (53–89 % überzählige Zeilen).
+
+Fix: `write_df` löscht jetzt vor dem Einfügen die vorhandenen Zeilen mit gleichem Zeitstempel, gleichen Tags und
+mindestens einer befüllten Spalte, in derselben Transaktion. Lokal gegen eine echte TimescaleDB verifiziert
+(wiederholtes/überlappendes Schreiben, andere Tags unberührt, Leser-Summe korrekt, `vre_gen`s getrennte
+Erzeugungs-/Regionalfaktor-Schreibvorgänge bleiben nebeneinander bestehen). Danach in Production: die drei
+Ergebnistabellen (`co2_intensity`, `reg_generation`, `reg_demand`) geleert (bewusste Entscheidung für einen
+sauberen Neustart statt Rekonstruktion der alten, teils widersprüchlichen Werte), `vre_gen`/`per_unit_gen`
+verlustfrei entdoppelt (dortige Duplikate waren identisch), `vre_forecast` unverändert gelassen. Ein Neustart des
+`co2map`-Containers war zusätzlich nötig, da die drei Scheduler als langlebige Python-Prozesse laufen und
+geänderten Code erst nach einem Neustart sehen, nicht nach einem reinen `git pull`. Im Live-Betrieb danach mit
+zwei aufeinanderfolgenden Läufen für dasselbe Zeitfenster verifiziert: genau eine Zeile pro Stunde statt Duplikate.
+
+**Offen**: der stündliche Live-Lauf schreibt weiterhin Nullzeilen in `reg_generation`/`reg_demand` für die letzten
+1–2 Stunden, für die der Crawler noch keine Daten hat (der `NoDataAvailableError`-Schutz greift erst eine Stufe
+später, bei der Intensitätsberechnung). Lösung hängt an der Antwort zur Crawler-Verzögerung — entweder das
+Live-Fenster bei uns versetzen, oder den Regionalisierungs-Schritt bei fehlenden Daten ebenfalls überspringen.
+
 ## Referenzierte Auftragstexte (archiviert)
 
 ### `TASK_dbclient_rewrite.md` (ursprünglicher Auftrag, Task jetzt abgeschlossen)
