@@ -18,6 +18,6 @@ config.yml
 data/pgadmin
 data/open-data-ha
 
-# co2map (cosema) -- secrets and large local-only inputs, see co2map/UEBERGABE.md
+# co2map (cosema) -- secrets and large local-only inputs, see co2map/docs/README.md
 co2map/keys.yaml
 co2map/inputs/

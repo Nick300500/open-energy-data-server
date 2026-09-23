@@ -1,9 +1,12 @@
 # Server-Zugang & Staging-Recherche (Stand 2026-08-20)
 
-Konkrete technische Erkenntnisse aus dem ersten echten Login auf dem OEDS-Server. Ergänzt/beantwortet mehrere
-Fragen aus [`oeds_integration_plan.md`](oeds_integration_plan.md) — dort bei Gelegenheit als "beantwortet"
-nachpflegen. **Keine Secrets/Passwörter in dieser Datei** — die stehen in der Kollegen-Mail bzw. der `.env` auf
-dem Server selbst, nicht hier.
+**Rein archivisch — die meisten "Offenen Punkte" unten sind inzwischen geklärt** (Docker-Gruppe, `develop` als
+Ausgangspunkt, `DB_HOST`, Grafana-Aktivierung, Deploy-Prozess), siehe [`historie.md`](historie.md) für den
+tatsächlichen Verlauf. Diese Datei bleibt als Rohdaten-Fundgrube erhalten (z.B. das `streamlit-app`-Dockerfile
+als Vorlage).
+
+Konkrete technische Erkenntnisse aus dem ersten echten Login auf dem OEDS-Server. **Keine Secrets/Passwörter in
+dieser Datei** — die stehen in der `.env` auf dem Server selbst, nicht hier.
 
 ## Zugang
 

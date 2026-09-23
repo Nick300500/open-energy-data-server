@@ -1,8 +1,9 @@
 # OEDS-Integration — Historie & Recherche-Verlauf
 
 Chronologischer Verlauf, wie wir zum aktuellen Stand gekommen sind — inklusive verworfener Pläne und inzwischen
-überholter Recherche-Ergebnisse. **Für den aktuellen Plan siehe [`oeds_integration_plan.md`](oeds_integration_plan.md)
-— diese Datei hier ist reines Archiv, nicht mehr aktiv gepflegt außer bei neuen historischen Meilensteinen.**
+überholter Recherche-Ergebnisse. **Für den aktuellen Stand siehe [`README.md`](README.md), für verbleibende
+offene Punkte [`plan.md`](plan.md) — diese Datei hier ist reines Archiv, nicht mehr aktiv gepflegt außer bei
+neuen historischen Meilensteinen.**
 
 ## 2026-08-04: Ursprünglicher Plan — Lift-and-Shift (verworfen)
 
@@ -253,6 +254,37 @@ zwei aufeinanderfolgenden Läufen für dasselbe Zeitfenster verifiziert: genau e
 1–2 Stunden, für die der Crawler noch keine Daten hat (der `NoDataAvailableError`-Schutz greift erst eine Stufe
 später, bei der Intensitätsberechnung). Lösung hängt an der Antwort zur Crawler-Verzögerung — entweder das
 Live-Fenster bei uns versetzen, oder den Regionalisierungs-Schritt bei fehlenden Daten ebenfalls überspringen.
+
+## 2026-09-23: Absturz im täglichen Per-Unit-Lauf behoben, Beinahe-Absturz bei der Wetter-API entdeckt
+
+**Ursache des `InvalidIndexError`-Absturzes gefunden und behoben**: der tägliche Lauf (`updated_calculations`,
+Modus `with_per_unit`) crashte in `regional_split.py::preprocess_gen_per_unit` beim Zusammenführen der
+Kraftwerksblock-Zeitreihen (`pd.concat(..., axis=1)`), weil einzelne Blöcke doppelte Zeitstempel hatten. Ursache
+in der externen `entsoe-py`-Bibliothek (`^0.7.0`): der `day_limited`-Decorator zerlegt mehrtägige Anfragen in
+Tagesblöcke und schneidet jeden mit `df.truncate(before=_start, after=_end)` zu — `truncate` ist an **beiden**
+Enden einschließlich, und benachbarte Tagesblöcke teilen sich ihre Grenze, wodurch der Grenz-Zeitstempel doppelt
+zurückkommt. Empirisch bestätigt: 49.174 doppelte (Block, Zeit)-Kombinationen in `cosema.per_unit_gen`, nie mit
+widersprüchlichen echten Werten (nur identische Werte oder beidseitig `NULL` — Kraftwerksblöcke mit
+Berichtslücken reiten strukturell auf demselben Bug mit).
+
+Fix an zwei Stellen: direkt nach dem Download in `cosema/ingestion/entsoe.py::download_per_unit_data` (verhindert,
+dass Duplikate je gespeichert werden) und defensiv in `regional_split.py::preprocess_gen_per_unit` (schützt vor
+Altbestand und jeder anderen künftigen Quelle nicht-eindeutiger Zeitstempel). Die 81.214 überzähligen Alt-Zeilen
+in `cosema.per_unit_gen` wurden bereinigt, mit Sicherheitsprüfung pro Schlüssel (jede Gruppe mit echtem Wert
+behält nach der Bereinigung genau einen echten Wert) statt eines pauschalen Vorher/Nachher-Zeilenvergleichs — ein
+erster Versuch mit der falschen Prüfung hätte harmlose Duplikat-Entfernung fälschlich als Datenverlust gewertet
+und wurde automatisch zurückgerollt, bevor irgendwas geändert war.
+
+**Separat entdeckt, beim Einordnen der Logs**: im selben Tageslauf (vor dem Absturz, beim Wetter-Cutout für
+`run_vre_historical`) gab es mehrfache `Minutely API request limit exceeded`/Timeout-Meldungen von der
+Copernicus/Open-Meteo-Wetter-API (`Vendor/atlite/datasets/meteo_hist.py::urlopen_with_retry`,
+`@retry(tries=5, delay=5, backoff=2)`, also maximal 5 Versuche). Die Wartezeiten in den Logs (5s → 10s → 20s)
+zeigen: es hat erst der **4. von 5** möglichen Versuchen geklappt — ein weiterer Fehlschlag hätte auch diesen
+Schritt zum Absturz gebracht, mit denselben Folgen wie der Per-Unit-Bug (kompletter Tageslauf-Abbruch). Kein
+eigener Code-Fehler, sondern eine externe Ratenlimit-Situation, aber ein echter Beinahe-Fall, kein reines
+Log-Rauschen. **Noch nicht behoben** — mögliche Ansätze: mehr Versuche/höhere Basiswartezeit, oder ein
+eigenständiger, nicht-fataler Fehlerpfad für einen einzelnen fehlgeschlagenen Cutout-Download statt Absturz des
+ganzen Laufs.
 
 ## Referenzierte Auftragstexte (archiviert)
 

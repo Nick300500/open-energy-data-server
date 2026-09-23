@@ -23,7 +23,7 @@ creates/extends the table as needed. This matters because write_df is also calle
 directly (not just through DBClient's own methods) from cosema/ingestion/entsoe.py with
 varying measurement/tag combinations.
 
-Redirected to OEDS's entsoe_raw schema (2026-08-21, see co2map/oeds_integration_plan.md):
+Redirected to OEDS's entsoe_raw schema (2026-08-21, see co2map/docs/plan.md):
 query_per_type_gen/query_demand_data/query_cross_border_flows now read live from
 entsoe_raw."Zonal_Generation_Raw"/"Zonal_Demand_Raw"/"Cross_Border_Physical_Flows_Bidding_Zones_Raw"
 instead of our own schema -- no separate connection needed, since the co2map service

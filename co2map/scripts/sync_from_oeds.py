@@ -5,14 +5,13 @@ Reads ENTSO-E generation/demand data straight from OEDS's own `entsoe` schema
 writes it in -- so query_per_type_gen/query_demand_data (cosema/input_output/
 influxdb.py) can read it back unchanged.
 
-Status (2026-08-20, see co2map/UEBERGABE.md / oeds_integration_plan.md step 2):
-server DB access is currently blocked (`pg_filenode.map` permission error), so
-none of this has been run against the live server yet. Table/column names for
-generation and demand below come from OEDS's own shipped dashboard
-(data/provisioning/grafana/dashboards/entsoe.json, entsoe.query_generation /
-entsoe.query_load) -- that's an OEDS-authored artifact, not our guess, but
-still worth a `--inspect-schema` sanity check once the server is reachable
-again before trusting it for real writes.
+Status (2026-08-20, see co2map/docs/README.md / co2map/docs/plan.md): written while
+server DB access was still blocked, never run against the live server. Superseded
+2026-08-21 -- query_per_type_gen/query_demand_data/query_cross_border_flows
+(cosema/input_output/influxdb.py) now read entsoe_raw directly instead, so this
+script's approach (copy into our own cosema schema first) is no longer needed.
+Kept only as a reference for the entsoe_raw/entsoe column names it found via
+OEDS's own shipped dashboard (data/provisioning/grafana/dashboards/entsoe.json).
 
 Cross-border flows are NOT covered here: no matching table showed up in any
 shipped Grafana dashboard (checked entsoe.json/smard.json/jao.json/entsog.json --

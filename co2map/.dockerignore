@@ -8,7 +8,7 @@ __pycache__
 logs
 *.log
 
-# Large local-only inputs (~13 GB, see UEBERGABE.md) -- not part of the repo,
+# Large local-only inputs (~13 GB, see docs/README.md) -- not part of the repo,
 # mounted as a volume on the server instead of being copied into the image.
 inputs
 
