@@ -19,6 +19,14 @@ regionalization/intensities work on their own before pulling in atlite's
 weather-cutout generation (needs a real CDSAPI_KEY + network access) as a
 second variable.
 
+Set TEST_MODE=with_per_unit to instead mirror updated_calculations.py's daily
+job (reg_mode="with_per_unit"). Still no new downloads even in this mode --
+download_per_unit/run_vre_historical stay off, reusing whatever is already in
+cosema.per_unit_gen/cosema.vre_gen from a real prior run instead of triggering
+a fresh ENTSO-E/CDS pull. Pick TEST_START/TEST_END inside a window both
+tables already fully cover, or check_per_unit_data()'s "using data until ..."
+fallback will silently shorten the window.
+
 Run inside the container:
   docker run --rm -e DB_HOST=... -e DB_PORT=... -e DB_NAME=... -e DB_USER=... -e DB_PASSWORD=... \
     co2map:test python scripts/test_pipeline_real_data.py
@@ -51,7 +59,10 @@ db_client = DBClient(
     password=os.environ["DB_PASSWORD"],
 )
 
-logger.info(f"Running pipeline for {START} - {END} (real-data window, no downloads, no VRE)")
+MODE = os.environ.get("TEST_MODE", "only_per_type")
+assert MODE in ("only_per_type", "with_per_unit"), f"unknown TEST_MODE {MODE!r}"
+
+logger.info(f"Running pipeline for {START} - {END} (real-data window, no downloads, mode={MODE})")
 
 run_pipeline(
     start=START,
@@ -67,7 +78,7 @@ run_pipeline(
     run_vre_forecast=False,
     run_regionalization=True,
     run_intensities=True,
-    reg_mode="only_per_type",
+    reg_mode=MODE,
 )
 
 logger.info("Done -- check the cosema schema's co2_intensity table for output.")
