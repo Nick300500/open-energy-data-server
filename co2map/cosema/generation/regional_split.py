@@ -91,6 +91,7 @@ def preprocess_gen_per_unit(per_unit_data, start, end):
         keys = dict(keys[1])
         eic = keys["EIC"]
         technology = keys["technology"]
+        values = values[~values.index.duplicated()]  # remove duplicates, occuring due to overlapping midnight data (duplicated 24:00/00:00)
         state = matching_id_EIC.loc[matching_id_EIC["eic_code_block"] == eic, "state"]
 
         if len(state) == 0:

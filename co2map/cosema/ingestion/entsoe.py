@@ -83,6 +83,8 @@ def download_per_unit_data(
 
         tso_gen.index = pd.to_datetime(tso_gen.index).tz_convert("UTC")
 
+        tso_gen = tso_gen[~tso_gen.index.duplicated()] # remove duplicates, occuring due to overlapping midnight data (duplicated 24:00/00:00)
+        
         for info, gen in tso_gen.items():
             tempDF = pd.DataFrame(
                 index=gen.index, columns=["Generation [MW]"], data=gen.values
