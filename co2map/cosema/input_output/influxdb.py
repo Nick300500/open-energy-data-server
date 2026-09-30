@@ -174,9 +174,35 @@ class DBClient:
         # InfluxDB overwrote a point with the same timestamp and tags; a plain
         # append would keep every re-run as an extra row, and the SUM/AVG in
         # _read_aggregated would then multiply or blend old and new values.
-        # Only rows carrying a value in one of the columns written here are
-        # replaced: write_vre_data writes "Generation [MW]" and "reg_factor"
-        # as separate writes for the same time and tags.
+        #
+        # write_vre_data writes "Generation [MW]" and "reg_factor" as two
+        # separate write_df calls for the same time and tags -- confirmed
+        # empirically (2026-09-30) they never share a physical row: each row
+        # has exactly one of the two columns set, the other NULL. Guarding
+        # deletion on "does the OLD row already have a non-NULL value in one
+        # of the columns I'm about to write" (the original approach) broke
+        # for legitimately-NULL data -- e.g. a per-unit block reporting no
+        # output for a quarter-hour -- since such a NULL row was then never
+        # deleted, and every overlapping re-run appended another NULL row for
+        # that same (time, tags) instead of replacing it (found: 76974 stale
+        # NULL duplicates in per_unit_gen this way). Guard on the table's
+        # *other* value columns being NULL instead: that still protects
+        # vre_gen's two writes from clobbering each other (a Generation
+        # write only deletes rows where reg_factor is NULL), but for
+        # single-value-column tables (per_unit_gen, reg_generation, ...)
+        # there are no "other" columns, so the guard is vacuously true and
+        # every matching row -- NULL or not -- gets replaced.
+        with self.engine.connect() as conn:
+            table_columns = conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = :table "
+                    "AND data_type = 'double precision'"
+                ),
+                {"schema": self.schema, "table": measurement},
+            ).scalars().all()
+        other_value_columns = [c for c in table_columns if c not in value_columns]
+
         times = list(pd.DatetimeIndex(insert_df["time"]).to_pydatetime())
         conditions = [
             '"time" >= :t_min',
@@ -187,8 +213,9 @@ class DBClient:
         for i, (key, value) in enumerate(tags.items()):
             conditions.append(f"{_quote_ident(key)} = :tag_{i}")
             params[f"tag_{i}"] = str(value)
-        has_value = " OR ".join(f"{_quote_ident(c)} IS NOT NULL" for c in value_columns)
-        conditions.append(f"({has_value})")
+        if other_value_columns:
+            other_null = " AND ".join(f"{_quote_ident(c)} IS NULL" for c in other_value_columns)
+            conditions.append(f"({other_null})")
 
         with self.engine.begin() as conn:
             conn.execute(
