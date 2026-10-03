@@ -267,6 +267,44 @@ zurückkommt. Empirisch bestätigt: 49.174 doppelte (Block, Zeit)-Kombinationen 
 widersprüchlichen echten Werten (nur identische Werte oder beidseitig `NULL` — Kraftwerksblöcke mit
 Berichtslücken reiten strukturell auf demselben Bug mit).
 
+## 2026-10-03: Täglicher Lauf lief seit 25.09. durchgehend ins Leere — zwei sich überlagernde Bugs gefunden
+
+Auffällig geworden über eine neue, bisher nicht dokumentierte Warnung im Live-Betrieb: `Total regionalized
+generation for Solar is not equal to initial total generation!` — Solar wird (anders als alle anderen
+Technologien) nicht über normierte Kapazitätsfaktoren regionalisiert, sondern über den wetterbasierten
+`reg_factor` aus `cosema.vre_gen`. Dessen Daten waren seit **2026-09-25 22:00** eingefroren (8 Tage alt),
+obwohl die Wetter-Cutout-Berechnung selbst laut Log weiterhin erfolgreich lief.
+
+Ursache: `updated_calculations` (täglicher Lauf, `with_per_unit`) ist seit 25.09. **jeden einzelnen Tag**
+abgestürzt, wodurch nichts aus diesem Lauf (weder Regionalisierung noch VRE) geschrieben wurde — die
+Erzeugung schreibt erst ganz am Ende des Laufs in einem Zug, ein Absturz davor verwirft alles. Zwei getrennte,
+zeitlich aufeinanderfolgende Ursachen dafür:
+
+1. **25.–29.09.**: `ValueError: cannot reindex on an axis with duplicate labels` in
+   `regional_split.py::calculate_regionalized_gen_and_demand` beim Verrechnen der Kraftwerksblock-Daten.
+   Zeitlich deckungsgleich mit der `write_df`-NULL-Duplikat-Regression (behoben am 30.09., siehe oben) —
+   nach deren Fix und Produktionsbereinigung verschwand dieser Fehler.
+2. **Seit mind. 30.09. bis heute**: ein zweiter, unabhängiger Bug trat auf, nachdem der erste weg war —
+   `KeyError: [Timestamp('2026-09-25 00:00:00+0000')] not in index` in
+   `calc_intensities.py::collect_and_prepare_data`, Zeile `gen_per_region.loc[indexes_to_drop] = 0.0`.
+   Ursache: `query_reg_demand_data` (influxdb.py) füllt den angeforderten Zeitraum immer vollständig auf
+   (`pd.date_range(start, end)`, Lücken → 0.0), `query_reg_per_type_data` dagegen gab bisher nur die
+   Zeitstempel zurück, die tatsächlich in `cosema.reg_generation` existierten. Fehlte ein Zeitstempel dort
+   komplett (z.B. weil ein früherer Lauf — wie der unter Punkt 1 — vor dem Schreiben abgestürzt war), stand er
+   zwar in der "unvollständig"-Liste (aus dem Demand-Index), aber nicht im Index von `gen_per_region` selbst —
+   die Zuweisung `.loc[indexes_to_drop] = 0.0` schlug dann mit `KeyError` fehl.
+
+**Fix**: `query_reg_per_type_data` reindext das Ergebnis jetzt ebenfalls auf den vollständigen angeforderten
+`pd.date_range` und füllt fehlende Werte mit 0.0 — analog zu `query_reg_demand_data`. Lokal gegen eine echte
+TimescaleDB mit einer gezielt simulierten Lücke verifiziert (ein Zeitstempel fehlt komplett in
+`reg_generation`): vorher `KeyError`, nachher läuft die zuvor crashende Zeile durch.
+
+**Offen**: der Fix verhindert künftige Abstürze, heilt aber die Vergangenheit nicht automatisch — `timestep`
+(das interne Scheduler-Fenster) rückt nur vorwärts, besucht keine übersprungenen Tage erneut. Die Lücke in
+`reg_generation`/`vre_gen`/`co2_intensity` für `with_per_unit`-Daten zwischen ca. 25.09. und dem Deploy dieses
+Fixes bleibt also bestehen, falls sie nicht manuell nachberechnet wird (kleinere Priorität, der Live-Betrieb
+ist seit Deploy wieder lauffähig).
+
 Fix an zwei Stellen: direkt nach dem Download in `cosema/ingestion/entsoe.py::download_per_unit_data` (verhindert,
 dass Duplikate je gespeichert werden) und defensiv in `regional_split.py::preprocess_gen_per_unit` (schützt vor
 Altbestand und jeder anderen künftigen Quelle nicht-eindeutiger Zeitstempel). Die 81.214 überzähligen Alt-Zeilen

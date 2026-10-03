@@ -1054,6 +1054,17 @@ def query_reg_per_type_data(
 
     reg_gen_per_type = pd.concat(reg_gen_per_type, axis=1)
 
+    # query_reg_demand_data (below) always covers the full requested range,
+    # pre-filled with 0.0 -- reg_generation rows can be fully absent for a
+    # timestamp (e.g. a day where the regionalization job crashed before
+    # writing), which without this would leave gen_per_region's index
+    # short of demand_per_region's and crash collect_and_prepare_data's
+    # `gen_per_region.loc[indexes_to_drop] = 0.0` with a KeyError (found
+    # 2026-10-03, see historie.md).
+    reg_gen_per_type = reg_gen_per_type.reindex(
+        pd.date_range(start=start, end=end, freq="1h")
+    ).fillna(0.0)
+
     return reg_gen_per_type
 
 

@@ -82,6 +82,12 @@ jeder einzelnen Datenquelle im Detail:
 - **`per_unit`-Aktualität**: `cosema.per_unit_gen` steht aktuell bei 2026-09-14, also schon ~9 Tage hinter
   "heute" (23.09.) — der Tageslauf holt nur ~1 Tag pro erfolgreichem Durchlauf auf. Beobachten, ob das von
   selbst aufholt.
+- **Solar/VRE-Warnung aufgeklärt und behoben (2026-10-03)**: `Total regionalized generation for Solar is not
+  equal...` kam daher, dass der tägliche Lauf seit 25.09. durchgehend abgestürzt ist (zwei verschiedene,
+  aufeinanderfolgende Bugs — Details in `historie.md`). Fix deployed (`query_reg_per_type_data` reindext jetzt
+  vollständig). **Noch offen**: die Datenlücke in `reg_generation`/`vre_gen`/`co2_intensity` (`with_per_unit`)
+  zwischen ca. 25.09. und dem Deploy ist nicht automatisch nachgeholt worden — ggf. manuell nachrechnen, falls
+  die Lücke stört.
 
 ## 7. Merge in `main`/`develop`
 
