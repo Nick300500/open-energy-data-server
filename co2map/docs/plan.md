@@ -1,4 +1,4 @@
-# OEDS-Integration — Offene Punkte (Stand 2026-09-23)
+# OEDS-Integration — Offene Punkte (Stand 2026-10-19)
 
 Der ursprüngliche 11-Schritte-Plan (Branch anlegen, Schema verifizieren, Docker-Image bauen, Deploy, ...) ist
 **komplett abgearbeitet** — Details dazu in [`historie.md`](historie.md). Diese Datei enthält nur noch, was
@@ -28,6 +28,15 @@ Tagesverlauf 241–658 g/kWh) als auch der tägliche Modus (`with_per_unit`, ebe
 letzterer manuell mit `TEST_MODE=with_per_unit` in `test_pipeline_real_data.py` getestet, ohne neue Downloads,
 gegen bereits vorhandene `per_unit_gen`/`vre_gen`-Daten. Bestätigt: die Kernlogik ist in beiden Modi korrekt,
 es fehlt nur die Ausrichtung des Live-Fensters auf die tatsächliche Crawler-Realität.
+
+**Konkreter Effekt im Live-Betrieb (Server-Check 2026-10-19)**: `cosema.co2_intensity` (`only_per_type`) für den
+18.10. hat alle Stunden 01:00–23:00, aber **00:00 fehlt**. Erklärung (aus dem Code abgeleitet, noch nicht für
+mehrere Tage bestätigt): Der stündliche Lauf rechnet `[timestep − 24h, timestep]`
+(`schedulers/initial_calculations.py`), die Stunde 00:00 des Vortags liegt also nur im Fenster des Laufs mit
+Ende 00:00 — und der läuft, bevor der Crawler den Vortag liefert (offenbar ca. 01–02 Uhr UTC). Wird erst 7 Tage
+später vom Tageslauf nachgetragen. **Vorschlag**: `TIME_DELTA` auf ~27h vergrößern, sodass der erste Lauf nach
+dem Crawler-Import den ganzen Vortag mitrechnet (Mehrfachschreiben ist dank transaktionalem `write_df`
+unkritisch). Vorher prüfen, ob 00:00 an mehreren Tagen fehlt (z.B. 17.10.).
 
 ## 2. Periodisches Nachladen der statischen Referenzdaten
 
@@ -89,7 +98,23 @@ jeder einzelnen Datenquelle im Detail:
   zwischen ca. 25.09. und dem Deploy ist nicht automatisch nachgeholt worden — ggf. manuell nachrechnen, falls
   die Lücke stört.
 
-## 7. Merge in `main`/`develop`
+## 7. Scheduler: Zeitzähler läuft bei verpassten Läufen ggf. hinterher
+
+Beobachtet 2026-10-19: Der Container-Prozess hing ca. 03:45–04:46 UTC (vermutlich im Zusammenhang mit dem
+automatischen Kernel-Update/Reboot des Servers um 06:03 UTC). Folge: `updated_calculations` wurde mit 1:01:34
+Verspätung **übersprungen** (`misfire_grace_time=60min`, kein Cutout `*_10_04_10_11_historical.nc`), ebenso
+zwei stündliche Läufe. Wegen der überlappenden 7-Tage-Fenster geht dabei kein Tag verloren.
+
+Strukturelles Risiko dahinter: `timestep` in `initial_calculations.py` ist ein eigener Zähler, der nur bei
+tatsächlich ausgeführten Läufen um `interval` weitergezählt wird (`timestep += interval`), nicht aus der
+Uhrzeit abgeleitet. Verpasste Läufe würden das Fenster also dauerhaft hinter die echte Zeit zurückfallen
+lassen, bis zum nächsten Container-Neustart (der den Zähler neu initialisiert — am 19.10. hat der Reboot das
+kaschiert). Noch nicht verifiziert, wie `start_scheduler` misfires behandelt; ggf. gleiches Muster in
+`updated_calculations.py`/`forecast_calculations.py` prüfen. **Vorschlag**: Fensterende pro Lauf aus der
+aktuellen Uhrzeit ableiten (auf volle Stunde gerundet) statt hochzuzählen. Ursache des einstündigen Hängers
+selbst ggf. über `journalctl` für den Zeitraum klären.
+
+## 8. Merge in `main`/`develop`
 
 Der komplette Stand läuft bisher nur auf dem gemeinsam genutzten Staging-Server, auf dem Branch
 `co2map-integration` — nie offiziell gemerged. War von Anfang an bewusst als allerletzter Schritt vorgesehen,
