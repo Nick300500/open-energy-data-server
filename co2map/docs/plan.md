@@ -33,10 +33,22 @@ es fehlt nur die Ausrichtung des Live-Fensters auf die tatsächliche Crawler-Rea
 18.10. hat alle Stunden 01:00–23:00, aber **00:00 fehlt**. Erklärung (aus dem Code abgeleitet, noch nicht für
 mehrere Tage bestätigt): Der stündliche Lauf rechnet `[timestep − 24h, timestep]`
 (`schedulers/initial_calculations.py`), die Stunde 00:00 des Vortags liegt also nur im Fenster des Laufs mit
-Ende 00:00 — und der läuft, bevor der Crawler den Vortag liefert (offenbar ca. 01–02 Uhr UTC). Wird erst 7 Tage
-später vom Tageslauf nachgetragen. **Vorschlag**: `TIME_DELTA` auf ~27h vergrößern, sodass der erste Lauf nach
-dem Crawler-Import den ganzen Vortag mitrechnet (Mehrfachschreiben ist dank transaktionalem `write_df`
-unkritisch). Vorher prüfen, ob 00:00 an mehreren Tagen fehlt (z.B. 17.10.).
+Ende 00:00 — und der läuft, bevor der Crawler den Vortag liefert (offenbar ca. 01–02 Uhr UTC).
+**Bestätigt (2026-10-23)**: 00:00 fehlt an jedem Tag 15.–22.10., am 17.10. sogar 00:00–03:00 (Crawler dort
+später); im Log jeweils `Skipping intensity calculation for <Tag> 00:00 - <Folgetag> 00:00`. Wird **nicht**
+nachgetragen — der Tageslauf schreibt `mode='with_per_unit'`, nicht `only_per_type` (15.10. hat auch nach 8 Tagen
+nur 23h). **Vorschlag**: `TIME_DELTA` auf ~27h (oder mehr, für spätere Crawler-Läufe wie am 17.10.) vergrößern,
+sodass der erste Lauf nach dem Crawler-Import den ganzen Vortag mitrechnet (Mehrfachschreiben ist dank
+transaktionalem `write_df` unkritisch).
+
+**Crawler-Zeitpunkt (2026-10-25)**: `entsoe_raw."Zonal_Generation_Raw".download_timestamp` (DE_LU) zeigt für
+jeden Tag genau einen Wert, meist Folgetag ~15:10 UTC, für den jüngsten Tag aber ~01:05 UTC. Da die Live-
+Intensitäten schon ab 01:00 vorliegen, kann der 15-Uhr-Lauf nicht der einzige sein — wahrscheinlichste
+Erklärung (abgeleitet, nicht in Prefect bestätigt): **zwei Läufe täglich (~01:05 und ~15:10 UTC)**, beide holen
+den Vortag, der zweite überschreibt den Download-Zeitstempel. Der für 00:00 zuständige stündliche Lauf startet
+um 01:15 (Lauf um HH:15 rechnet bis HH−1:00) — also nur ~10 min nach dem Crawler. Am 17.10. lieferte der
+Crawler offenbar erst ~04–05 Uhr, da hätten auch 27h nicht gereicht. **Robustere Alternative**: Fensterstart
+fest auf 00:00 des Vortags statt fixer Stundenzahl. (Flow-Tabelle hat eigene Spalte `Download Time`.)
 
 ## 2. Periodisches Nachladen der statischen Referenzdaten
 
@@ -55,7 +67,12 @@ zuerst (kleinste Datei, kein API-Key nötig, größter sichtbarer Effekt).
 vereinheitlichen: die 2026er-Datei ist prozentskaliert (Summe 100) statt Anteil (Summe 1,0), und die
 Zeitspalte heißt uneinheitlich `datetime` bzw. `timestamp`.
 
-## 3. Wetterdaten-API (Copernicus/CDS): Beinahe-Absturz durch Ratenlimit
+**Entscheidung (2026-10-19)**: Die `co2map_reg_facts`-Faktoren **ersetzen** die bisherigen (per Kalenderabgleich
+fortgeschriebene 2018er-Reihe, `scripts/prepare_demand_data.py`) — kein Umschalten zwischen beiden, also keine
+Codeänderung in der Map nötig. Sie liegen für mehrere Jahre vor und haben am Ende dieselbe Struktur wie die
+aktuelle Tabelle `cosema_inputs.demand_reg_factors`; ausgetauscht wird nur der Inhalt über die Upload-Skripte.
+
+## 3. Wetterdaten-API (Open-Meteo-Archiv, nicht Copernicus/CDS): Beinahe-Absturz durch Ratenlimit
 
 Beim täglichen Lauf am 23.09. hat die Wetter-Cutout-Erstellung (`run_vre_historical`) mehrfach ein Ratenlimit
 getroffen und erst im **vorletzten** von 5 erlaubten Versuchen geklappt (`Vendor/atlite/datasets/meteo_hist.py`,
@@ -84,8 +101,11 @@ jeder einzelnen Datenquelle im Detail:
 
 - **Wind-/Solar-Werte** (`vre_gen`/`vre_forecast`) nie einzeln auf Plausibilität geprüft (Solar nachts ~0,
   regionale Verteilung passend zu bekannten Wind-/Solarstandorten).
-- **Cross-Border-Flows** fließen ins SIGI-Balancing ein, wurden aber nie einzeln auf plausible Werte geprüft
-  — nur, dass die Rechnung damit nicht abstürzt.
+- ~~**Cross-Border-Flows** nie einzeln geprüft~~ — **geprüft 2026-10-25**: `entsoe_raw."Cross_Border_Physical_
+  Flows_Bidding_Zones_Raw"` für `DE_LU`, 20.–24.10.: alle 11 Nachbarzonen in beide Richtungen (22 Paare),
+  stündlich lückenlos (109/109 Werte), Stand jeweils Vortag 23:00 (wie Erzeugung/Last). Maxima 200–4.100 MW,
+  größte Werte an den großen Interkonnektoren (NL, DK_1, FR, PL, AT), keine negativen/Dauer-Null-Werte.
+  Plausibel.
 - **Forecast-Job** (`forecast_calculations.py`, alle 12h): ob `run_vre_calculations(mode="forecast")` selbst
   sinnvolle `vre_forecast`-Werte liefert, nie manuell durchgetestet (unabhängig von Punkt 4 oben).
 - **`per_unit`-Aktualität**: `cosema.per_unit_gen` steht aktuell bei 2026-09-14, also schon ~9 Tage hinter
@@ -114,7 +134,29 @@ kaschiert). Noch nicht verifiziert, wie `start_scheduler` misfires behandelt; gg
 aktuellen Uhrzeit ableiten (auf volle Stunde gerundet) statt hochzuzählen. Ursache des einstündigen Hängers
 selbst ggf. über `journalctl` für den Zeitraum klären.
 
-## 8. Merge in `main`/`develop`
+## 8. Per-Unit-Download aus der Map auslagern
+
+`download_per_unit_data` (`cosema/ingestion/entsoe.py`, nur im täglichen Lauf) ist der letzte Rohdaten-Download,
+den die Map noch selbst macht — Erzeugung nach Typ, Verbrauch und Grenzflüsse kommen seit 28.08. live aus
+`entsoe_raw`. Kraftwerksblock-Daten gab es dort laut `historie.md` (12.08.) noch nicht.
+
+Gründe für das Auslagern: passt zur Architektur (die Map liest nur, Rohdaten kommen vom Server), ein eigener
+Crawler kann verpasste Tage nachholen (der Scheduler-Zähler rückt nur vorwärts, siehe Punkt 7), Download- und
+Rechenfehler blockieren sich nicht mehr gegenseitig, die Map braucht keinen eigenen `ENTSOE_API_KEY` mehr, und
+die Daten stehen auch anderen zur Verfügung. Zwei der Probleme der letzten Wochen kamen aus diesem Pfad
+(doppelte Zeitstempel aus `entsoe-py`, `per_unit_gen` ~9 Tage Rückstand Ende September).
+
+Nicht dringend, läuft aktuell. **Optionen**: (a) OEDS-Betreuer fragen, ob ihr ENTSO-E-Crawler zusätzlich
+"Generation per Production Unit" abrufen kann (sauberste Lösung, Crawler gehören nicht uns), oder (b) in den
+geplanten eigenen Prefect-Flow für Referenzdaten (Punkt 2) mit aufnehmen. Auf Map-Seite danach nur noch
+`query_per_unit_gen` auf die neue Tabelle umstellen und `download_per_unit` im täglichen Lauf abschalten —
+gleiches Muster wie die Umstellung am 28.08.
+
+**Vorab klären**: wie lange der Download aktuell dauert (in `logs/updated_calculations.log` die Spanne zwischen
+APScheduler "Running job" um 05:45 und "Per unit data downloaded and written to database"), und ob
+`per_unit_gen` den Rückstand von Ende September inzwischen aufgeholt hat.
+
+## 9. Merge in `main`/`develop`
 
 Der komplette Stand läuft bisher nur auf dem gemeinsam genutzten Staging-Server, auf dem Branch
 `co2map-integration` — nie offiziell gemerged. War von Anfang an bewusst als allerletzter Schritt vorgesehen,

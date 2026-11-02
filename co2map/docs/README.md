@@ -19,7 +19,8 @@ selben Container:
 - **`initial_calculations`** (stündlich): letzte 24h, liest `entsoe_raw` live, Modus `only_per_type`.
 - **`updated_calculations`** (täglich, 05:45 Europe/Berlin): 7-Tage-Fenster mit 7 Tagen Versatz in die
   Vergangenheit, zusätzlich Kraftwerksblock-Daten (`with_per_unit`, braucht `ENTSOE_API_KEY`) und
-  Wetter-Cutouts (ERA5 über Copernicus/CDS).
+  Wetter-Cutouts (Open-Meteo-Archiv-API, einzelne Strahlungsgrößen zusätzlich aus ERA5 über Copernicus/CDS;
+  die Prognose im 12h-Lauf nutzt die Open-Meteo-Forecast-API).
 - **`forecast_calculations`** (alle 12h): schreibt nur die Wind-/Solar-**Prognose** (`vre_forecast`) für den
   stündlichen Lauf — berechnet **keine** CO2-Intensitäts-Prognose, der entsprechende Aufruf ist im Code
   auskommentiert (Stand unklar, ob das schon immer so war — noch nicht untersucht).
@@ -52,7 +53,7 @@ Details und Priorisierung siehe [`plan.md`](plan.md). Kurz:
 1. ENTSO-E-Crawler-Verzögerung/-Lücken in Production (extern, gemeldet).
 2. Periodisches Nachladen der statischen Referenzdaten (MaStR/Kapazitäten/Demand-Faktoren) — bisher nur
    einmaliger Snapshot, wird als eigener Prefect-Flow separat angegangen.
-3. Wetterdaten-API (Copernicus/CDS) war beim letzten Lauf nah an einem eigenen Absturz durch Ratenlimits —
+3. Wetterdaten-API (Open-Meteo-Archiv) war beim letzten Lauf nah an einem eigenen Absturz durch Ratenlimits —
    noch nicht abgesichert.
 4. Grafana-Dashboards noch nicht final geprüft/poliert; eigenes Web-Frontend für die Karte — unklar, ob überhaupt
    gewollt.

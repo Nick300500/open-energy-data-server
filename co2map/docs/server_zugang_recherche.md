@@ -10,7 +10,7 @@ dieser Datei** — die stehen in der `.env` auf dem Server selbst, nicht hier.
 
 ## Zugang
 
-- **SSH**: `ssh nick@132.230.100.67` — nur im Instituts-VPN erreichbar.
+- **SSH**: `ssh <user>@<server>` — nur im Instituts-VPN erreichbar.
 - Passwort nach erstem Login geändert (Pflicht, war im Klartext in der Übergabe-Mail).
 - **Keine Sudo-Rechte** (`nick is not in the sudoers file`), **kein Zugriff auf den Docker-Socket**
   (`permission denied` bei `docker ps`) — Nutzer `nick` ist nicht in der `docker`-Gruppe.

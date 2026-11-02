@@ -184,7 +184,7 @@ Direkt danach noch ein Strukturfehler beim manuellen Nachziehen der Service-Reih
 anzubinden — Hintergrund: der ENTSO-E-Crawler läuft in Production unverändert weiter (nur Staging steht seit
 2026-07-27 still), ansonsten sind Schema/Daten identisch. `co2map` läuft technisch weiterhin im Staging-
 Compose-Projekt, erreicht die Production-DB daher nicht über einen internen Servicenamen, sondern über die externe
-Serveradresse + Production's extern gemapptem Port (`132.230.100.67:6432`, analog zum bisherigen Zugriffsmuster
+Serveradresse + Production's extern gemapptem Port (`<server>:<prod_db_port>`, analog zum bisherigen Zugriffsmuster
 für Staging über `:7432`). Umgesetzt über neue, `co2map`-eigene `CO2MAP_DB_*`-Variablen in `compose.yml`
 (bewusst **nicht** die bestehenden `DB_HOST`/`DB_PORT`/etc. wiederverwendet, da die weiterhin von `open-data-17`
 selbst, `prefect-worker` und `open-postgrest` für die Staging-DB gebraucht werden).
@@ -315,7 +315,7 @@ und wurde automatisch zurückgerollt, bevor irgendwas geändert war.
 
 **Separat entdeckt, beim Einordnen der Logs**: im selben Tageslauf (vor dem Absturz, beim Wetter-Cutout für
 `run_vre_historical`) gab es mehrfache `Minutely API request limit exceeded`/Timeout-Meldungen von der
-Copernicus/Open-Meteo-Wetter-API (`Vendor/atlite/datasets/meteo_hist.py::urlopen_with_retry`,
+Open-Meteo-Archiv-API (`Vendor/atlite/datasets/meteo_hist.py::urlopen_with_retry`,
 `@retry(tries=5, delay=5, backoff=2)`, also maximal 5 Versuche). Die Wartezeiten in den Logs (5s → 10s → 20s)
 zeigen: es hat erst der **4. von 5** möglichen Versuchen geklappt — ein weiterer Fehlschlag hätte auch diesen
 Schritt zum Absturz gebracht, mit denselben Folgen wie der Per-Unit-Bug (kompletter Tageslauf-Abbruch). Kein
