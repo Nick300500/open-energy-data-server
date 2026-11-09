@@ -820,6 +820,19 @@ def calculate_total_capacities_for_cosema(
             ["Type", "Longitude", "Latitude", "Capacity", "Region Identifier"]
         ]
         pp_data_vre = pp_data_vre.rename(columns={"Longitude": "x", "Latitude": "y"})
+
+        # Sum capacities per state and 0.25 degree weather grid cell instead of
+        # storing every single plant (~4.5 million rows per month for solar).
+        # cutout.layout_from_capacity_list sums per grid cell anyway, so the
+        # VRE generation stays identical (checked for 2026_02, all technologies
+        # and states). Ties go to the upper cell, matching atlite's snapping --
+        # np.round (ties to even) put a few plants into the neighbouring cell.
+        pp_data_vre["x"] = np.floor(pp_data_vre["x"] * 4 + 0.5) / 4
+        pp_data_vre["y"] = np.floor(pp_data_vre["y"] * 4 + 0.5) / 4
+        pp_data_vre = pp_data_vre.groupby(
+            ["Region Identifier", "Type", "x", "y"], as_index=False
+        )["Capacity"].sum()
+
         pp_data_vre = pp_data_vre.set_index(["Region Identifier", "Type"], drop=False)
         pp_data_vre = gpd.GeoDataFrame(
             pp_data_vre,
@@ -841,7 +854,8 @@ def calculate_total_capacities_for_cosema(
             elif carrier == "wind onshore":
                 carrier = "wind_onshore"
 
-            temp_df = pp_data_vre.loc[idx].reset_index(drop=True)
+            # [idx] keeps a GeoDataFrame even if a state has only one grid cell
+            temp_df = pp_data_vre.loc[[idx]].reset_index(drop=True)
             temp_df = temp_df.drop(columns=["Type", "Region Identifier"])
 
             temp_df.to_parquet(

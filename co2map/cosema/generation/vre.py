@@ -97,7 +97,8 @@ def _latest_vre_capacities_period(at_or_before: str, technology: str, state: str
 
 
 def _load_vre_capacity(technology: str, state: str, period: str) -> gp.GeoDataFrame:
-    """Per-plant VRE capacities (x, y, Capacity, geometry) for one technology/
+    """VRE capacities (x, y, Capacity, geometry; one row per 0.25 degree grid
+    cell since 2026-11, one row per plant before) for one technology/
     state/period, from cosema_inputs.capacities_vre -- replaces the old
     gp.read_parquet(local_capacity_path) call."""
     query = (
