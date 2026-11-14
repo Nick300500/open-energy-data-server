@@ -30,6 +30,12 @@ instead of our own schema -- no separate connection needed, since the co2map ser
 connects to the same Postgres instance OEDS's own crawler writes into (see
 compose.yml: DB_HOST=open-data-17). See cosema/input_output/oeds_zones.py for the
 bidding-zone <-> country mapping this relies on.
+
+Extended to OEDS's yearly ENTSO-E archive (2026-11-14, for historical runs):
+entsoe_raw only starts 2026-07-21; before that the same tables live in
+"<year>_raw" schemas (2020_raw ... 2026_raw, one UTC year each). The three
+reads pick the schema(s) per time window -- see _entsoe_sources(). Windows
+from 2026-07-21 on still read entsoe_raw only, exactly as before.
 """
 import logging
 import traceback
@@ -105,10 +111,11 @@ class DBClient:
         # round-trip on every single write_df call once a table has stabilized.
         self._known_columns = set()
 
-        # entsoe_raw."Zonal_Generation_Raw" column names, cached on first use --
-        # see _read_oeds_generation(). Fixed OEDS-side schema, not expected to
-        # change within a process lifetime.
-        self._oeds_generation_columns = None
+        # OEDS-side metadata, cached on first use -- see _entsoe_sources().
+        # Fixed within a process lifetime: column names per (schema, table),
+        # and the first timestamp per entsoe_raw table.
+        self._oeds_columns = {}
+        self._oeds_live_start = {}
 
     def _ensure_table(self, measurement: str, tag_columns: list, value_columns: list):
         schema_q = _quote_ident(self.schema)
@@ -314,17 +321,134 @@ class DBClient:
             df.index = pd.DatetimeIndex([], tz="UTC", name="time")
         return df
 
-    def _oeds_generation_table_columns(self) -> set:
-        if self._oeds_generation_columns is None:
+    def _oeds_table_columns(self, schema: str, table: str) -> set:
+        """Column names of an OEDS table, empty set if it doesn't exist."""
+        key = (schema, table)
+        if key not in self._oeds_columns:
             with self.engine.connect() as conn:
                 rows = conn.execute(
                     text(
                         "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_schema = 'entsoe_raw' AND table_name = 'Zonal_Generation_Raw'"
-                    )
+                        "WHERE table_schema = :schema AND table_name = :table"
+                    ),
+                    {"schema": schema, "table": table},
                 )
-                self._oeds_generation_columns = {r[0] for r in rows}
-        return self._oeds_generation_columns
+                self._oeds_columns[key] = {r[0] for r in rows}
+        return self._oeds_columns[key]
+
+    def _oeds_live_start_time(self, table: str):
+        """First timestamp in entsoe_raw.<table> (OEDS's live crawler), or None
+        if that table is missing or empty."""
+        if table not in self._oeds_live_start:
+            live_start = None
+            if self._oeds_table_columns("entsoe_raw", table):
+                with self.engine.connect() as conn:
+                    live_start = conn.execute(
+                        text(f'SELECT min("time") FROM entsoe_raw.{_quote_ident(table)}')
+                    ).scalar()
+            self._oeds_live_start[table] = (
+                None if live_start is None else pd.Timestamp(live_start).tz_convert("UTC")
+            )
+        return self._oeds_live_start[table]
+
+    def _entsoe_sources(self, table: str, start: pd.Timestamp, end: pd.Timestamp) -> list:
+        """Split [start, end] into (schema, seg_start, seg_end, end_inclusive)
+        pieces for the same ENTSO-E table across OEDS schemas:
+        - from the first timestamp of entsoe_raw.<table> on: entsoe_raw only
+          (the live crawler -- also where it overlaps the yearly archive,
+          21.07.-31.08.2026, so current runs read exactly as before),
+        - before that: the yearly archive schema "<year>_raw" (2020_raw,
+          2021_raw, ...), each holding exactly one UTC calendar year.
+        Windows crossing a year boundary (gap filling loads two weeks before
+        the requested start) get one piece per schema. Pieces whose schema or
+        table doesn't exist are dropped -- those hours then show up as gaps."""
+        start = start.tz_convert("UTC")
+        end = end.tz_convert("UTC")
+        live_start = self._oeds_live_start_time(table)
+
+        # archive part: [start, end] if entirely before live_start, else
+        # [start, live_start) -- live_start itself belongs to entsoe_raw
+        if live_start is None or end < live_start:
+            archive_end, archive_inclusive = end, True
+        else:
+            archive_end, archive_inclusive = live_start, False
+
+        sources = []
+        for year in range(start.year, archive_end.year + 1):
+            seg_start = max(start, pd.Timestamp(f"{year}-01-01", tz="UTC"))
+            next_year = pd.Timestamp(f"{year + 1}-01-01", tz="UTC")
+            if next_year <= archive_end:
+                seg_end, inclusive = next_year, False
+            else:
+                seg_end, inclusive = archive_end, archive_inclusive
+            if seg_start < seg_end or (inclusive and seg_start == seg_end):
+                sources.append((f"{year}_raw", seg_start, seg_end, inclusive))
+        if live_start is not None and end >= live_start:
+            sources.append(("entsoe_raw", max(start, live_start), end, True))
+
+        return [s for s in sources if self._oeds_table_columns(s[0], table)]
+
+    def _read_entsoe(
+        self,
+        table: str,
+        value_columns: dict,
+        where_sql: str,
+        params: dict,
+        start: pd.Timestamp,
+        end: pd.Timestamp,
+    ) -> pd.DataFrame:
+        """Per-timestamp SUM of value_columns ({source column: output name})
+        over all rows matching where_sql, read across entsoe_raw and the
+        yearly "<year>_raw" archive schemas (see _entsoe_sources). Value
+        columns are a mix of `text` and `double precision` on OEDS's side
+        (grown organically, same as our own _ensure_table) -- cast via text
+        first so it works uniformly for either source type. A column missing
+        in one schema is read as NULL there."""
+        parts = []
+        query_params = dict(params)
+        for i, (schema, seg_start, seg_end, inclusive) in enumerate(
+            self._entsoe_sources(table, start, end)
+        ):
+            available = self._oeds_table_columns(schema, table)
+            cols = ", ".join(
+                (
+                    f"CAST(NULLIF(CAST({_quote_ident(src)} AS TEXT), '') AS DOUBLE PRECISION)"
+                    if src in available
+                    else "CAST(NULL AS DOUBLE PRECISION)"
+                )
+                + f" AS {_quote_ident(out)}"
+                for src, out in value_columns.items()
+            )
+            end_op = "<=" if inclusive else "<"
+            parts.append(
+                f'SELECT "time", {cols} FROM {_quote_ident(schema)}.{_quote_ident(table)} '
+                f'WHERE {where_sql} AND "time" >= :start_{i} AND "time" {end_op} :end_{i}'
+            )
+            query_params[f"start_{i}"] = seg_start.to_pydatetime()
+            query_params[f"end_{i}"] = seg_end.to_pydatetime()
+
+        if not parts:
+            return pd.DataFrame(
+                columns=list(value_columns.values()),
+                index=pd.DatetimeIndex([], tz="UTC", name="time"),
+                dtype=float,
+            )
+
+        sums = ", ".join(
+            f"SUM({_quote_ident(out)}) AS {_quote_ident(out)}"
+            for out in value_columns.values()
+        )
+        query = text(
+            f'SELECT "time", {sums} FROM ({" UNION ALL ".join(parts)}) AS src '
+            f'GROUP BY "time" ORDER BY "time"'
+        )
+        with self.engine.connect() as conn:
+            df = pd.read_sql(query, conn, params=query_params, index_col="time")
+        if df.empty:
+            df.index = pd.DatetimeIndex([], tz="UTC", name="time")
+        else:
+            df.index = pd.to_datetime(df.index, utc=True)
+        return df
 
     def _read_oeds_generation(
         self,
@@ -333,81 +457,54 @@ class DBClient:
         start: pd.Timestamp,
         end: pd.Timestamp,
     ) -> pd.DataFrame:
-        """Sums entsoe_raw."Zonal_Generation_Raw" across the country's bidding
-        zone(s) (see oeds_zones.py) in one query for all requested
-        technologies at once. Returns a wide DataFrame: index=time (UTC),
+        """Sums "Zonal_Generation_Raw" across the country's bidding zone(s)
+        (see oeds_zones.py) in one query for all requested technologies at
+        once, from entsoe_raw and the yearly archive schemas (see
+        _entsoe_sources). Returns a wide DataFrame: index=time (UTC),
         columns=technology (Title Case, matching our own naming -- OEDS's
         crawler snake_cases the same entsoe-py technology names, e.g.
         "Fossil Hard coal" -> "Fossil_Hard_coal", so the mapping is just
-        replace(" ", "_") and its inverse)."""
-        zones = zones_for_country(country)
-        available = self._oeds_generation_table_columns()
-        tech_to_column = {tech: tech.replace(" ", "_") for tech in technologies}
-        present = {t: c for t, c in tech_to_column.items() if c in available}
+        replace(" ", "_") and its inverse). Technologies without a column in
+        any of the schemas read are left out, as before."""
+        table = "Zonal_Generation_Raw"
+        available = set().union(
+            *(
+                self._oeds_table_columns(schema, table)
+                for schema, *_ in self._entsoe_sources(table, start, end)
+            )
+        )
+        present = {
+            tech.replace(" ", "_"): tech
+            for tech in technologies
+            if tech.replace(" ", "_") in available
+        }
         if not present:
             return pd.DataFrame(index=pd.DatetimeIndex([], tz="UTC", name="time"))
 
-        # entsoe_raw's value columns are a mix of `text` and `double precision`
-        # (grown organically on OEDS's side, same as our own _ensure_table) --
-        # cast via text first so it works uniformly for either source type.
-        select_cols = ", ".join(
-            f'SUM(CAST(NULLIF(CAST("{c}" AS TEXT), \'\') AS DOUBLE PRECISION)) AS "{c}"'
-            for c in present.values()
+        return self._read_entsoe(
+            table,
+            present,
+            "zone = ANY(:zones)",
+            {"zones": zones_for_country(country)},
+            start,
+            end,
         )
-        query = text(
-            f'SELECT "time", {select_cols} FROM entsoe_raw."Zonal_Generation_Raw" '
-            f'WHERE zone = ANY(:zones) AND "time" >= :start AND "time" <= :end '
-            f'GROUP BY "time" ORDER BY "time"'
-        )
-        with self.engine.connect() as conn:
-            df = pd.read_sql(
-                query,
-                conn,
-                params={
-                    "zones": zones,
-                    "start": start.to_pydatetime(),
-                    "end": end.to_pydatetime(),
-                },
-                index_col="time",
-            )
-        if df.empty:
-            df.index = pd.DatetimeIndex([], tz="UTC", name="time")
-        else:
-            df.index = pd.to_datetime(df.index, utc=True)
-        return df.rename(columns={c: t for t, c in present.items()})
 
     def _read_oeds_demand(
         self, country: str, start: pd.Timestamp, end: pd.Timestamp
     ) -> pd.DataFrame:
-        """Sums entsoe_raw."Zonal_Demand_Raw" across the country's bidding
-        zone(s). Returns a single-column DataFrame (index=time, UTC),
-        column "Demand [MW]" -- same shape query_demand_data already expects
-        from the old self-schema read."""
-        zones = zones_for_country(country)
-        query = text(
-            'SELECT "time", '
-            "SUM(CAST(NULLIF(CAST(\"Actual_Load\" AS TEXT), '') AS DOUBLE PRECISION)) "
-            'AS "Demand [MW]" '
-            'FROM entsoe_raw."Zonal_Demand_Raw" '
-            'WHERE zone = ANY(:zones) AND "time" >= :start AND "time" <= :end '
-            'GROUP BY "time" ORDER BY "time"'
+        """Sums "Zonal_Demand_Raw" across the country's bidding zone(s), from
+        entsoe_raw and the yearly archive schemas. Returns a single-column
+        DataFrame (index=time, UTC), column "Demand [MW]" -- same shape
+        query_demand_data already expects from the old self-schema read."""
+        return self._read_entsoe(
+            "Zonal_Demand_Raw",
+            {"Actual_Load": "Demand [MW]"},
+            "zone = ANY(:zones)",
+            {"zones": zones_for_country(country)},
+            start,
+            end,
         )
-        with self.engine.connect() as conn:
-            df = pd.read_sql(
-                query,
-                conn,
-                params={
-                    "zones": zones,
-                    "start": start.to_pydatetime(),
-                    "end": end.to_pydatetime(),
-                },
-                index_col="time",
-            )
-        if df.empty:
-            df.index = pd.DatetimeIndex([], tz="UTC", name="time")
-        else:
-            df.index = pd.to_datetime(df.index, utc=True)
-        return df
 
     def _read_oeds_cross_border_flow(
         self,
@@ -416,41 +513,24 @@ class DBClient:
         start: pd.Timestamp,
         end: pd.Timestamp,
     ) -> pd.DataFrame:
-        """Sums entsoe_raw."Cross_Border_Physical_Flows_Bidding_Zones_Raw"
-        across the two countries' bidding zone(s). Zone pairs with no
-        interconnector simply have no rows, so summing across all zone
-        combinations of split countries (IT/NO/SE/DK) naturally reduces to
-        just the zones that are actually adjacent -- not an approximation in
-        practice, just a query that doesn't need to know the physical
-        adjacency itself."""
-        zones_from = zones_for_country(country_code_from)
-        zones_to = zones_for_country(country_code_to)
-        query = text(
-            'SELECT "time", '
-            "SUM(CAST(NULLIF(CAST(\"Physical Flow\" AS TEXT), '') AS DOUBLE PRECISION)) "
-            'AS "Flow [MW]" '
-            'FROM entsoe_raw."Cross_Border_Physical_Flows_Bidding_Zones_Raw" '
-            'WHERE "From Zone" = ANY(:zones_from) AND "To Zone" = ANY(:zones_to) '
-            'AND "time" >= :start AND "time" <= :end '
-            'GROUP BY "time" ORDER BY "time"'
+        """Sums "Cross_Border_Physical_Flows_Bidding_Zones_Raw" across the two
+        countries' bidding zone(s), from entsoe_raw and the yearly archive
+        schemas. Zone pairs with no interconnector simply have no rows, so
+        summing across all zone combinations of split countries
+        (IT/NO/SE/DK) naturally reduces to just the zones that are actually
+        adjacent -- not an approximation in practice, just a query that
+        doesn't need to know the physical adjacency itself."""
+        return self._read_entsoe(
+            "Cross_Border_Physical_Flows_Bidding_Zones_Raw",
+            {"Physical Flow": "Flow [MW]"},
+            '"From Zone" = ANY(:zones_from) AND "To Zone" = ANY(:zones_to)',
+            {
+                "zones_from": zones_for_country(country_code_from),
+                "zones_to": zones_for_country(country_code_to),
+            },
+            start,
+            end,
         )
-        with self.engine.connect() as conn:
-            df = pd.read_sql(
-                query,
-                conn,
-                params={
-                    "zones_from": zones_from,
-                    "zones_to": zones_to,
-                    "start": start.to_pydatetime(),
-                    "end": end.to_pydatetime(),
-                },
-                index_col="time",
-            )
-        if df.empty:
-            df.index = pd.DatetimeIndex([], tz="UTC", name="time")
-        else:
-            df.index = pd.to_datetime(df.index, utc=True)
-        return df
 
     def query_per_type_gen(
         self,
