@@ -33,7 +33,7 @@ Kapazitätsfaktoren (konventionell + VRE) und Verbrauchs-Regionalisierungsfaktor
 - `reg_demand_data_dynamic` — verteilt bundesweiten Verbrauch auf Bundesländer,
   mittels der Faktoren aus `input_output/local_files.py`
 - `get_per_type_data` / `get_vre_data` / `get_demand_data` — Abfrage-Wrapper mit
-  Fallback auf Null-Daten bei Fehlern (rufen `input_output/influxdb.py` auf)
+  Fallback auf Null-Daten bei Fehlern (rufen `input_output/db_client.py` auf)
 - `calculate_regionalized_gen_and_demand` — Haupteinstieg: orchestriert alle
   obigen Schritte, kombiniert mit Pro-Einheit-Daten (falls `mode="with_per_unit"`)
   und schreibt das Ergebnis in die Datenbank

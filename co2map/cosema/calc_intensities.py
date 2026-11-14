@@ -8,8 +8,8 @@ import cosema.pypsa_scripts as pf
 import Vendor.netallocation as ntl
 from cosema.cross_border_scripts import query_cross_border_flows
 from cosema.input_output.db_engine import INPUTS_SCHEMA, get_engine
-from cosema.input_output.influxdb import query_demand_data, query_reg_demand_data
-from cosema.input_output.influxdb import query_per_type_data, query_reg_per_type_data
+from cosema.input_output.db_client import query_demand_data, query_reg_demand_data
+from cosema.input_output.db_client import query_per_type_data, query_reg_per_type_data
 from cosema.balance import (
     internal_sigma_approach,
     make_balance,

@@ -44,7 +44,7 @@ def perform_initial_calculations(entsoe_client, db_client, time_delta, interval)
         # Redundant since 2026-08-28: query_per_type_gen/query_demand_data/
         # query_cross_border_flows now read live from OEDS's entsoe_raw
         # schema instead of what these downloads used to write into our own
-        # schema (see cosema/input_output/influxdb.py). Left disabled rather
+        # schema (see cosema/input_output/db_client.py). Left disabled rather
         # than removed -- the flags/downloads themselves still work, just
         # unneeded given the current data source.
         download_per_type=False,

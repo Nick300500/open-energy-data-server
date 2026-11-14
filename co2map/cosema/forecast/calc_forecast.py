@@ -4,7 +4,7 @@ import yaml
 
 from cosema.generation.regional_split import reg_demand_data_dynamic
 from cosema.forecast.forecast_scripts import forecast_bus_intensity, prepare_inputs
-from cosema.input_output.influxdb import collect_vre
+from cosema.input_output.db_client import collect_vre
 from cosema.regions import BUSES
 
 logger = logging.getLogger(__name__)

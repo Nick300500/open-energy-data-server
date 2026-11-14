@@ -2,7 +2,7 @@
 Bidding-zone <-> country-code mapping for reading ENTSO-E data directly out of
 OEDS's own entsoe_raw schema (zone-level) into cosema's country-level model
 (DBClient.query_per_type_gen / query_demand_data / query_cross_border_flows in
-input_output/influxdb.py).
+input_output/db_client.py).
 
 Most countries map 1:1 to an identically-named bidding zone. A handful of
 countries are split into several zones; for those, generation/demand get

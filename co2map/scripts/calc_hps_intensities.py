@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from cosema.input_output.influxdb import DBClient
+from cosema.input_output.db_client import DBClient
 from cosema.regions import BUSES
 
 # -------------------------------------------------

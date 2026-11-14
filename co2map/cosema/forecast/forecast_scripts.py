@@ -13,8 +13,8 @@ except ImportError:
 import numpy as np
 import pandas as pd
 
-from cosema.input_output.influxdb import query_reg_demand_data
-from cosema.input_output.influxdb import collect_intensities, collect_vre
+from cosema.input_output.db_client import query_reg_demand_data
+from cosema.input_output.db_client import collect_intensities, collect_vre
 from cosema.regions import BUSES
 
 with open("config.yaml", "r") as f:

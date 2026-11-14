@@ -1,5 +1,5 @@
 """
-Reading of reference/input data, as opposed to influxdb.py which handles the
+Reading of reference/input data, as opposed to db_client.py which handles the
 Postgres/entsoe_raw-backed timeseries data.
 
 Started during modularization (2026-07-16) with the demand-regionalization

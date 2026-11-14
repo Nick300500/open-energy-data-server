@@ -10,7 +10,7 @@ from entsoe import EntsoePandasClient
 
 from cosema.forecast.calc_forecast import forecast_intensities
 from cosema.generation.vre import run_vre_calculations
-from cosema.input_output.influxdb import DBClient
+from cosema.input_output.db_client import DBClient
 from cosema.ingestion.entsoe import download_demand_forecast_data
 from cosema.logging import get_handlers
 

@@ -3,12 +3,12 @@ Reads ENTSO-E generation/demand data straight from OEDS's own `entsoe` schema
 (the server's existing ENTSO-E crawler output) and writes it into our own
 `cosema` schema via DBClient, in the same shape cosema.ingestion.entsoe already
 writes it in -- so query_per_type_gen/query_demand_data (cosema/input_output/
-influxdb.py) can read it back unchanged.
+db_client.py) can read it back unchanged.
 
 Status (2026-08-20, see co2map/docs/README.md / co2map/docs/plan.md): written while
 server DB access was still blocked, never run against the live server. Superseded
 2026-08-21 -- query_per_type_gen/query_demand_data/query_cross_border_flows
-(cosema/input_output/influxdb.py) now read entsoe_raw directly instead, so this
+(cosema/input_output/db_client.py) now read entsoe_raw directly instead, so this
 script's approach (copy into our own cosema schema first) is no longer needed.
 Kept only as a reference for the entsoe_raw/entsoe column names it found via
 OEDS's own shipped dashboard (data/provisioning/grafana/dashboards/entsoe.json).
@@ -90,7 +90,7 @@ def oeds_engine():
 def target_db_client():
     # imported lazily: DBClient's module reads inputs/generation_data/... at
     # import time, which --inspect-schema shouldn't need to depend on.
-    from cosema.input_output.influxdb import DBClient
+    from cosema.input_output.db_client import DBClient
 
     return DBClient(
         database_name=os.environ.get("DB_NAME", "cosema"),

@@ -8,6 +8,9 @@ InfluxDBClient/DataFrameClient specifically, not a generic DB backend, and
 this module is planned to absorb the query-loop helpers from per_type_scripts.py
 / demand_scripts.py too (see modularization_docs/modularisierung_zielstruktur.md) -- so
 "influxdb" describes its scope better than "db_client" going forward.
+Renamed back to db_client.py (2026-11-14): since the Postgres port below no
+InfluxDB is involved anymore, and the module name now matches its DBClient
+class and the neighbouring db_engine.py.
 
 Ported from InfluxDB to TimescaleDB/Postgres (2026-08-13, see TASK_dbclient_rewrite.md):
 same method names/signatures as before, SQL instead of InfluxQL. Scope decision for

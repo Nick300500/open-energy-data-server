@@ -24,7 +24,7 @@ import time
 from apscheduler.schedulers.background import BackgroundScheduler
 from entsoe import EntsoePandasClient
 
-from cosema.input_output.influxdb import DBClient
+from cosema.input_output.db_client import DBClient
 
 
 def build_clients():

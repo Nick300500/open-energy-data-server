@@ -10,7 +10,7 @@ by the all-zero scenario.
 
 No downloads (download_per_type/demand/cross_border/per_unit all off):
 query_per_type_gen/query_demand_data/query_cross_border_flows already read
-live from entsoe_raw (see cosema/input_output/influxdb.py), no separate
+live from entsoe_raw (see cosema/input_output/db_client.py), no separate
 ingestion step needed. entsoe_client is therefore never touched -- None is
 fine, no real ENTSO-E API key needed for this test.
 
@@ -36,7 +36,7 @@ import os
 
 import pandas as pd
 
-from cosema.input_output.influxdb import DBClient
+from cosema.input_output.db_client import DBClient
 from cosema.logging import get_handlers
 from cosema.pipelines.runner import run_pipeline
 

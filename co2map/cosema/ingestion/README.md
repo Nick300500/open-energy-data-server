@@ -1,7 +1,7 @@
 # cosema/ingestion/
 
 Stufe 1 der Pipeline: Rohdaten-Download von externen Quellen. Schreibt direkt
-über `cosema.input_output.influxdb.DBClient` in die Datenbank.
+über `cosema.input_output.db_client.DBClient` in die Datenbank.
 
 ## entsoe.py
 

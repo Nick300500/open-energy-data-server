@@ -6,7 +6,7 @@ import yaml
 from entsoe import EntsoePandasClient
 
 from cosema.capacities.mastr import calculate_total_capacities_for_cosema
-from cosema.input_output.influxdb import DBClient
+from cosema.input_output.db_client import DBClient
 from cosema.logging import get_handlers
 from cosema.pipelines.runner import run_pipeline
 

@@ -4,7 +4,7 @@ Alles, was Daten von "außen" liest oder schreibt — InfluxDB, lokale Dateien.
 Gegenstück: `cosema/generation/` usw. enthalten die Rechenlogik, die auf diesen
 Daten arbeitet.
 
-## influxdb.py
+## db_client.py
 
 `DBClient` — Klasse für den gesamten InfluxDB-Zugriff:
 - `write_df` — allgemeine Schreibfunktion für ein DataFrame in ein Measurement

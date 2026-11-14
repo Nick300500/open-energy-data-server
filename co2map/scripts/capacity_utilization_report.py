@@ -18,7 +18,7 @@ import yaml
 
 from cosema.generation.leftover import calc_leftover_gen_per_type, prepare_gen_per_unit
 from cosema.generation.regional_split import get_per_type_data, preprocess_gen_per_unit
-from cosema.input_output.influxdb import DBClient
+from cosema.input_output.db_client import DBClient
 
 with open("config.yaml", "r") as f:
     config = yaml.safe_load(f)

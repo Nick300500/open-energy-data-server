@@ -3,10 +3,10 @@ Canonical model of the German Bundesländer (states) used throughout cosema.
 
 Single source of truth for state abbreviations, replacing the ad-hoc
 `config["states"].values()` re-derivation duplicated across
-generation/regional_split.py, generation/vre.py, input_output/influxdb.py,
+generation/regional_split.py, generation/vre.py, input_output/db_client.py,
 calc_forecast.py, forecast_scripts.py, and the hardcoded `["MV", "NI", "SH"]`
 offshore-states literal duplicated in generation/vre.py (x2) and
-input_output/influxdb.py (x1). See modularization_docs/modularisierung_zielstruktur.md
+input_output/db_client.py (x1). See modularization_docs/modularisierung_zielstruktur.md
 (Schritt 4) / modularization_docs/modularisierung_status.md.
 
 The abbreviations and their order mirror config.yaml's `states:` mapping

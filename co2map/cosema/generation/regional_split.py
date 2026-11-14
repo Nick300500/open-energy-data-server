@@ -21,7 +21,7 @@ import yaml
 
 from cosema.generation.leftover import calc_leftover_gen_per_type
 from cosema.input_output.db_engine import INPUTS_SCHEMA, get_engine
-from cosema.input_output.influxdb import collect_vre, query_per_type_data
+from cosema.input_output.db_client import collect_vre, query_per_type_data
 from cosema.input_output.local_files import load_demand_reg_factors
 from cosema.regions import BUSES
 
