@@ -1,12 +1,19 @@
 # cosema/input_output/
 
-Alles, was Daten von "außen" liest oder schreibt — InfluxDB, lokale Dateien.
+Alles, was Daten von "außen" liest oder schreibt — die Postgres/TimescaleDB-Datenbank
+des OEDS-Servers (seit 2026-08 statt InfluxDB).
 Gegenstück: `cosema/generation/` usw. enthalten die Rechenlogik, die auf diesen
 Daten arbeitet.
 
 ## db_client.py
 
-`DBClient` — Klasse für den gesamten InfluxDB-Zugriff:
+`DBClient` — Klasse für den Zugriff auf die Zeitreihen. Eigene Ergebnisse liegen
+im Schema `cosema` (eine Tabelle pro früherem InfluxDB-Measurement, als Hypertable).
+ENTSO-E-Rohdaten (Erzeugung nach Typ, Verbrauch, Grenzflüsse) werden nur gelesen,
+aus den Schemas des OEDS-Crawlers: `entsoe_raw` ab 2026-07-21, davor die
+Jahres-Schemas `2020_raw` … `2026_raw` (Auswahl pro Zeitfenster in `_entsoe_sources`).
+Bis 2026-11 hieß die Datei `influxdb.py`.
+
 - `write_df` — allgemeine Schreibfunktion für ein DataFrame in ein Measurement
 - `query_per_type_gen` — liest Erzeugung nach Typ für ein Land
 - `query_per_unit_gen` — liest Pro-Einheit-Erzeugung (einzelne Kraftwerke)
@@ -34,9 +41,20 @@ auf Null-Daten):
 
 ## local_files.py
 
-- `load_demand_reg_factors` — lädt und verkettet die jährlichen
-  Verbrauchs-Regionalisierungsfaktoren-CSVs (`inputs/demand_reg_data/`) für
-  einen gegebenen Zeitindex.
+- `load_demand_reg_factors` — lädt die Verbrauchs-Regionalisierungsfaktoren
+  aus `cosema_inputs.demand_reg_factors` (früher jährliche CSVs unter
+  `inputs/demand_reg_data/`) für einen gegebenen Zeitindex.
+
+## db_engine.py
+
+- `get_engine` — SQLAlchemy-Engine aus `DB_HOST/PORT/NAME/USER/PASSWORD`
+  (bzw. `.env`), für die Referenzdaten außerhalb von `DBClient`
+- `INPUTS_SCHEMA` — Schema der Referenzdaten, Standard `cosema_inputs`
+
+## oeds_zones.py
+
+- `zones_for_country` — Gebotszonen in den OEDS-Tabellen zu einem Land
+  (z.B. `DE` → `DE_LU`)
 
 ## gap_filling.py
 

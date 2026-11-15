@@ -1,4 +1,4 @@
-# CO2-Map-Integration in den Open-Energy-Data-Server — Stand 2026-09-23
+# CO2-Map-Integration in den Open-Energy-Data-Server — Stand 2026-11-15
 
 Einstiegspunkt für die Doku zu diesem Repo (Fork von `INATECH-CIG/open-energy-data-server`, Branch
 `co2map-integration`). Diese Datei ersetzt die alte `UEBERGABE.md` und beschreibt den **aktuellen** Stand.
@@ -26,9 +26,18 @@ selben Container:
   auskommentiert (Stand unklar, ob das schon immer so war — noch nicht untersucht).
 
 **Datenquellen**: `entsoe_raw`/`entsoe` (OEDS's eigener ENTSO-E-Crawler, nicht von uns geschrieben) +
-`cosema_inputs` (MaStR, Shapefiles, Kapazitäten, Demand-Regionalisierungsfaktoren, Gen-Type-Mapping — einmalig
-über die eigenständigen, **nicht in diesem Repo liegenden** "Transfer data to database"-Skripte hochgeladen).
-Wetter-Cutouts bleiben bewusst als Dateien (Bind-Mount), nicht in der DB.
+`cosema_inputs` (MaStR, Shapefiles, Kapazitäten, Demand-Regionalisierungsfaktoren, Gen-Type-Mapping und
+Emissionsfaktoren — über die eigenständigen, **nicht in diesem Repo liegenden** "Transfer data to database"-Skripte
+hochgeladen). Wetter-Cutouts bleiben bewusst als Dateien (Bind-Mount), nicht in der DB.
+
+- **ENTSO-E-Historie**: `entsoe_raw` beginnt erst am 2026-07-21. Davor liegen dieselben Tabellen in den
+  Jahres-Schemas `2020_raw` … `2026_raw` (je ein UTC-Jahr). `DBClient` wählt pro Zeitfenster die passenden Schemas
+  (seit 2026-11-14), damit sind Läufe ab 2020 möglich. Ein `2019_raw` gibt es nicht.
+- **Kapazitäten**: eine Periode pro Monat (`YYYY_MM`) in `capacities_conventional` (pro Bundesland) und
+  `capacities_vre` (pro Bundesland × 0,25°-Wetterzelle, seit 2026-11; vorher pro Anlage, ~4,5 Mio. Zeilen pro Monat).
+  Fehlt ein Monat, nimmt die Map den neuesten früheren. Hochgeladen ist bisher nur `2026_02`.
+- **Zugangsdaten**: alle Skripte und Scheduler lesen `DB_HOST/PORT/NAME/USER/PASSWORD` und `ENTSOE_API_KEY` aus
+  Umgebungsvariablen bzw. `.env` (`cosema/pipelines/scheduler_bootstrap.py`). `keys.yaml` wird nicht mehr benutzt.
 
 **Zwei Datenbanken im Spiel**: `co2map` läuft technisch weiter im **Staging**-Compose-Projekt, liest/schreibt
 aber inzwischen gegen die **Production**-DB (`CO2MAP_DB_*`-Variablen, siehe `compose.yml`) — weil der
@@ -46,6 +55,20 @@ ENTSO-E-Crawler in Staging seit Ende Juli stillsteht, in Production aber weiterl
 - Täglicher Per-Unit-Lauf (ENTSO-E-API direkt, Kraftwerksblock-Ebene) läuft durch, seit ein Bibliotheks-Bug
   (doppelte Zeitstempel an Tagesgrenzen) behoben ist.
 
+## Skripte (`co2map/scripts/`)
+
+Aufruf aus `co2map/`, lokal mit `python -m scripts.<name>` (sonst findet Python `cosema` nicht), im Container geht
+auch `python scripts/<name>.py`.
+
+- `manual_runs.py` — manueller Lauf der Pipeline für einen Zeitraum, Monat für Monat (Schritte per Flag).
+- `calc_capacities.py` — Kapazitätsdateien für einen Monatsbereich; Upload danach mit `transfer_capacities.py`.
+- `calc_hps_intensities.py` — Emissionsfaktor Pumpspeicher für abgeschlossene Jahre, schreibt eine CSV für
+  `transfer_generation_data.py`.
+- `check_cutouts.py` — prüft Wetter-Cutouts auf Lücken (stille Download-Ausfälle).
+- `capacity_utilization_report.py` — Auswertung, wie viel Kapazität/Erzeugung über Blockdaten gemessen vs. verteilt ist.
+- `test_pipeline_real_data.py` — manueller Ende-zu-Ende-Test gegen echte Daten.
+- Älter, unverändert übernommen: `create_shapefiles.py`, `prepare_demand_data.py`; `sync_from_oeds.py` ist überholt.
+
 ## Bekannte offene Punkte
 
 Details und Priorisierung siehe [`plan.md`](plan.md). Kurz:
@@ -59,6 +82,8 @@ Details und Priorisierung siehe [`plan.md`](plan.md). Kurz:
    gewollt.
 5. Merge des `co2map-integration`-Branches in `main`/`develop` — bewusst der allerletzte Schritt, noch nicht
    angegangen.
+6. Historischer Nachlauf 2020 bis heute: Lesen der Jahres-Schemas und Kapazitäten-Skript stehen, offen sind u.a.
+   Kapazitäten für alle Monate, Herkunft der VRE-Faktoren (alte Map oder Wetter-Cutouts) und das Lauf-Skript.
 
 ## Wichtige Prinzipien aus der bisherigen Arbeit
 

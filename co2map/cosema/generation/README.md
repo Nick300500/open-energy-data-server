@@ -54,4 +54,5 @@ Verteilung auf Bundesländer (dafür ist `regional_split.py` zuständig):
 Geplant: einfache Formel (Erzeugung × Emissionsfaktor) statt der aufwendigen
 PyPSA/netallocation-Optimierung aus `calc_intensities.py`, um die
 produktionsseitige Intensität zu berechnen. Hängt an einer noch nicht
-verifizierten Hypothese, siehe `modularization_docs/modularisierung_zielstruktur.md`.
+verifizierten Hypothese, siehe `restructuring_docs/modularisierung_zielstruktur.md` im alten
+Repo `CO2_Intensity`.

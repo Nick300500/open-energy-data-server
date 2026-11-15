@@ -5,7 +5,8 @@ projektweite Basis-Infrastruktur sind (`config.py`, `regions.py`, `logging.py`),
 von Generation- UND Consumption-Seite gebraucht werden (`balance.py`), oder weil
 sie zur Consumption-Side gehören und noch nicht einsortiert wurden
 (`calc_intensities.py`, `pypsa_scripts.py`, `cross_border_scripts.py` —
-bewusst zurückgestellt, siehe `modularization_docs/modularisierung_status.md`).
+bewusst zurückgestellt, siehe `restructuring_docs/modularisierung_status.md` im alten
+Repo `CO2_Intensity`; die Modularisierungs-Doku wurde nicht mit hierher übernommen).
 
 ## config.py
 
@@ -50,7 +51,7 @@ abgesichert) als auch die verbrauchsseitige Flow-Tracing-Logik, die noch nicht
 herausgetrennt wurde:
 
 - `load_config` / `load_technologies_and_ef` — Konfiguration bzw. Emissionsfaktoren laden
-- `collect_and_prepare_data` — sammelt alle Vorstufen-Daten aus InfluxDB ein
+- `collect_and_prepare_data` — sammelt alle Vorstufen-Daten aus der Datenbank ein (über `DBClient`)
 - `balance_data` — gleicht Erzeugung/Verbrauch/Grenzflüsse aus (nutzt `balance.py`)
 - `refactor_demand_column_names` / `aggregate_technologies` / `apply_regionalization_factors` — Produktionsseite, vom Golden-Master-Test abgedeckt
 - `reconcile_cross_border_flows` — gleicht Grenzflüsse zwischen den Ebenen ab
