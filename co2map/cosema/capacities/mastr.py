@@ -678,6 +678,7 @@ def calculate_total_capacities_for_cosema(
     vre_tech_groups=["solar", "wind"],
     update_mastr_db=False,
     overwrite=False,
+    out_dir="inputs/capacities",
 ):
     """
     Main function in which all the loading, updating and cleaning of the pp
@@ -689,6 +690,8 @@ def calculate_total_capacities_for_cosema(
     :freg str: frequency with which powerplants should be filtered
     :decomission_date pd.Timestamp: date at which the power plants should be decomissioned
     :update_mastr_db bool: update database (MaStr)
+    :overwrite bool: recalculate months whose files already exist
+    :out_dir str: folder that gets one subfolder per month ({YYYY_MM})
 
     :return: pp_data_conventional_per_type, pp_data_vre_per_type
     """
@@ -738,17 +741,27 @@ def calculate_total_capacities_for_cosema(
     )
 
     # calculate conventional and VRE capacities per type
+    # One date per period end, same dates as pd.date_range(freq="M") gave
+    # before. Built via period_range because pandas 3 rejects freq="M" for
+    # date_range and pandas < 2.2 doesn't know its replacement "ME".
+    dates = (
+        pd.period_range(start=start_date, end=end_date, freq=freq)
+        .to_timestamp(how="end")
+        .normalize()
+    )
+    dates = dates[(dates >= start_date) & (dates <= end_date)]
+
     logger.info("Calculating conventional capacities per type")
-    for date in pd.date_range(start=start_date, end=end_date, freq=freq):
-        path = f"inputs/capacities/{date.strftime('%Y_%m')}"
+    for date in dates:
+        path = f"{out_dir}/{date.strftime('%Y_%m')}"
 
         if not os.path.exists(path):
             os.makedirs(path)
 
-        if (
-            os.path.exists(f"{path}/conv_capacities_{date.strftime('%Y_%m')}.parquet")
-            and not overwrite
-        ):
+        # The conv file is written last (see end of loop), so it marks a
+        # complete month -- an aborted run picks up at the first unfinished one.
+        conv_file = f"{path}/conv_capacities_{date.strftime('%Y_%m')}.parquet"
+        if os.path.exists(conv_file) and not overwrite:
             logger.info(
                 f"Capacities are already calculated for {date}, skipping calculation"
             )
@@ -784,20 +797,7 @@ def calculate_total_capacities_for_cosema(
         # round to 3 significant digits
         pp_data_per_type = pp_data_per_type.round(3)
 
-        # save to parquet
-        pp_data_per_type.to_parquet(
-            f"{path}/conv_capacities_{date.strftime('%Y_%m')}.parquet"
-        )
         # %% calculate VRE capacities per type
-        if (
-            os.path.exists(f"{path}/solar_capacities_{date.strftime('%Y_%m')}.parquet")
-            and not overwrite
-        ):
-            logger.info(
-                f"Capacities are already calculated for {date}, skipping calculation"
-            )
-            continue
-
         pp_data_vre = powerplants_vre.copy()
         pp_data_vre = pp_data_vre[
             pp_data_vre["Type"].isin(["Solar", "Wind Onshore", "Wind Offshore"])
@@ -861,5 +861,8 @@ def calculate_total_capacities_for_cosema(
             temp_df.to_parquet(
                 f"{path}/{carrier}_capacities_{region}_{date.strftime('%Y_%m')}.parquet"
             )
+
+        # written last: marks the month as complete (see skip check above)
+        pp_data_per_type.to_parquet(conv_file)
 
         logger.info(f"Capacities for {date} are calculated and stored")
