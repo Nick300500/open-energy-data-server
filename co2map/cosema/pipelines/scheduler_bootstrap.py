@@ -27,6 +27,25 @@ from entsoe import EntsoePandasClient
 from cosema.input_output.db_client import DBClient
 
 
+def build_db_client():
+    """
+    Build the DBClient from the DB_HOST/PORT/NAME/USER/PASSWORD env vars
+    (or .env). Split out of build_clients (2026-11-15) for the read-only
+    scripts (calc_hps_intensities.py, capacity_utilization_report.py), which
+    need no ENTSO-E key.
+    """
+    # This DBClient's own target DB (schema="cosema", DBClient's default) is
+    # the same open-data-17 Postgres instance as everything else, not a
+    # separate database.
+    return DBClient(
+        database_name=os.environ.get("DB_NAME", "opendata"),
+        host=os.environ.get("DB_HOST", "localhost"),
+        port=int(os.environ.get("DB_PORT", "5432")),
+        username=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
+    )
+
+
 def build_clients():
     """
     Build the DBClient + EntsoePandasClient shared by all schedulers, from
@@ -35,16 +54,7 @@ def build_clients():
     replaces the old keys.yaml file, which was never set up for this
     container (2026-08-28).
     """
-    # This DBClient's own target DB (schema="cosema", DBClient's default) is
-    # the same open-data-17 Postgres instance as everything else, not a
-    # separate database.
-    db_client = DBClient(
-        database_name=os.environ.get("DB_NAME", "opendata"),
-        host=os.environ.get("DB_HOST", "localhost"),
-        port=int(os.environ.get("DB_PORT", "5432")),
-        username=os.environ["DB_USER"],
-        password=os.environ["DB_PASSWORD"],
-    )
+    db_client = build_db_client()
     # timeout=: without it, a request whose server accepts the connection but
     # never replies hangs forever, bypassing retry_function's retry entirely
     # (see cosema/ingestion/entsoe.py::retry_function) -- observed 2026-07-22/23

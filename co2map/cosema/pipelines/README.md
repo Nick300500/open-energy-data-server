@@ -12,7 +12,11 @@ nicht denselben Ablauf dreimal duplizieren.
 
 ## scheduler_bootstrap.py
 
-- `build_clients` — lädt `keys.yaml`, baut `DBClient` + `EntsoePandasClient`
+- `build_clients` — baut `DBClient` + `EntsoePandasClient` aus den Umgebungsvariablen
+  `DB_HOST/PORT/NAME/USER/PASSWORD` und `ENTSOE_API_KEY` (bzw. `.env`); nutzen die
+  Scheduler und seit 2026-11 auch `scripts/manual_runs.py`
+- `build_db_client` — nur der `DBClient` (ohne ENTSO-E-Key), für die reinen Lese-Skripte
+  `scripts/calc_hps_intensities.py` und `scripts/capacity_utilization_report.py`
 - `start_scheduler` — registriert eine Funktion als wiederkehrenden
   APScheduler-Job, startet ihn und blockiert, bis das Programm beendet wird
 

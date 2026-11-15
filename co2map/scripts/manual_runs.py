@@ -2,39 +2,22 @@
 import logging
 
 import pandas as pd
-import yaml
-from entsoe import EntsoePandasClient
 
 from cosema.capacities.mastr import calculate_total_capacities_for_cosema
-from cosema.input_output.db_client import DBClient
 from cosema.logging import get_handlers
 from cosema.pipelines.runner import run_pipeline
+from cosema.pipelines.scheduler_bootstrap import build_clients
 
 handlers = get_handlers(log_path="logs/manual_runs.log")
 logging.basicConfig(level=logging.INFO, handlers=handlers)
 
 logger = logging.getLogger(__name__)
 
-# read config.yaml
-with open("config.yaml", "r") as f:
-    config = yaml.safe_load(f)
-
-# load keys.yaml where the database and entsoe keys are stored
-with open("keys.yaml", "r") as f:
-    keys = yaml.safe_load(f)
-
-db_client = DBClient(
-    database_name="cosema",
-    username=keys["influxdb"]["username"],
-    password=keys["influxdb"]["password"],
-)
-
-# timeout=: without it, a request whose server accepts the connection but never
-# replies hangs forever (retry_function's ConnectionError catch never triggers,
-# because no exception is ever raised) -- observed 2026-07-22/23, a cross-border
-# flow request stalled for 3.5h+ with zero progress. The timeout turns that into
-# a Timeout exception, which retry_function now retries like any other failure.
-entsoe_client = EntsoePandasClient(api_key=keys["entsoe-key"], timeout=60)
+# Same clients as the schedulers: DB_HOST/PORT/NAME/USER/PASSWORD and
+# ENTSOE_API_KEY from env vars or .env (locally e.g. via SSH tunnel). Replaces
+# keys.yaml (2026-11-15), which doesn't exist in this repo and whose DBClient
+# call pointed at localhost:5432/cosema instead of the OEDS database.
+db_client, entsoe_client = build_clients()
 
 # Start and end date
 start = pd.Timestamp("2026-02-01 00:00", tz="UTC")
@@ -56,15 +39,10 @@ reg_mode = "with_per_unit"  # "only_per_type" / "with_per_unit"
 
 
 # %%
-if True:
-# for month in pd.date_range(start=start, end=end, freq="MS"):
-    if end - start > pd.Timedelta(days=30):
-        temp_start = month
-        temp_end = month + pd.DateOffset(months=1)
-    else:
-        temp_start = start
-        temp_end = end
-
+# One pipeline run per calendar month (cut at start/end if they fall
+# mid-month), so a long range doesn't load everything into memory at once.
+boundaries = sorted({start, end, *pd.date_range(start=start, end=end, freq="MS")})
+for temp_start, temp_end in zip(boundaries[:-1], boundaries[1:]):
     logger.info(f"Running for {temp_start} to {temp_end}")
 
     run_pipeline(

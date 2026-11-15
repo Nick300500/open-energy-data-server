@@ -8,32 +8,29 @@ via capacity-weighted regional factors).
 Pure read-only analysis -- does not write anything back to the DB and is
 not part of run_pipeline(). Only needs, for the chosen period, that
 ingestion (download_per_type_data, download_per_unit_data) and the
-conventional capacity calculation (calculate_total_capacities_for_cosema)
-have already run.
+conventional capacity calculation (calculate_total_capacities_for_cosema,
+uploaded to cosema_inputs.capacities_conventional) have already run.
+
+DB connection via build_db_client() (DB_* env vars or .env) since
+2026-11-15, replacing keys.yaml; capacities read from the DB instead of the
+local inputs/capacities/ files, like regional_split.py does.
 """
 import os
 
 import pandas as pd
-import yaml
 
 from cosema.generation.leftover import calc_leftover_gen_per_type, prepare_gen_per_unit
-from cosema.generation.regional_split import get_per_type_data, preprocess_gen_per_unit
-from cosema.input_output.db_client import DBClient
-
-with open("config.yaml", "r") as f:
-    config = yaml.safe_load(f)
-
-with open("keys.yaml", "r") as f:
-    keys = yaml.safe_load(f)
-
-db_client = DBClient(
-    database_name="cosema",
-    username=keys["influxdb"]["username"],
-    password=keys["influxdb"]["password"],
+from cosema.generation.regional_split import (
+    _load_conv_capacities,
+    get_per_type_data,
+    preprocess_gen_per_unit,
 )
+from cosema.pipelines.scheduler_bootstrap import build_db_client
 
-# Period must already be ingested (per_type_gen / per_unit_gen in InfluxDB) and
-# have conventional capacities computed (inputs/capacities/{month}/...).
+db_client = build_db_client()
+
+# Period must already be ingested (per_type_gen / per_unit_gen) and have
+# conventional capacities in cosema_inputs.capacities_conventional.
 start = pd.Timestamp("2026-02-01 00:00", tz="UTC")
 end = pd.Timestamp("2026-03-01 00:00", tz="UTC")
 month = start.strftime("%Y_%m")
@@ -47,8 +44,9 @@ gen_per_unit_dict, capacities_used_in_per_unit = preprocess_gen_per_unit(
     raw_per_unit_data, start, end
 )
 
-capacity_path = f"inputs/capacities/{month}"
-regional_capacities = pd.read_parquet(f"{capacity_path}/conv_capacities_{month}.parquet")
+regional_capacities = _load_conv_capacities(month)
+if regional_capacities.empty:
+    raise ValueError(f"No conventional capacities for {month} in capacities_conventional")
 
 # align the two capacity tables (same Bundesland index, same Type columns)
 # before comparing -- capacities_used_in_per_unit only has columns/rows for
